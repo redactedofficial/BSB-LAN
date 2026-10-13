@@ -30,6 +30,7 @@
 #endif
 
 #include <Arduino.h>
+#include "gateway_profile.h"
 
 #define BUS_OK 1
 #define BUS_NOTFREE -1
@@ -174,6 +175,10 @@ uint8_t max_temp_mode = 0x01;        // Temperature mode: 0x00 - auto, 0x01 - ma
 //#include "src/BSB/BSBSoftwareSerial.h"
 #include "src/BSB/bsb.h"
 #include "BSB_LAN_config.h"
+#if defined(BSB_MINIMAL_GATEWAY)
+  #undef MAX_HEATINGTBL
+  #define MAX_HEATINGTBL 1 // Parameter-dump generation is not part of this profile.
+#endif
 #include "BSB_LAN_defs.h"
 
 #if defined(ESP32) && !defined(ARDUINO_PARTITION_min_spiffs) && !defined(CUSTOM_PARTITION_TABLE)
@@ -237,9 +242,11 @@ UserDefinedEEP<> EEPROM; // default Adresse 0x50 (80)
   #include <WiFiUdp.h>
   #include <esp_wifi.h>
 WiFiUDP udp, udp_log;
+#if !defined(BSB_MINIMAL_GATEWAY)
   #include <WebServer.h>
   #include <Update.h>
 WebServer update_server(8080);
+#endif
 
 EEPROMClass EEPROM_ESP((const char *)"nvs");
   #define EEPROM EEPROM_ESP     // This is a dirty hack because the Arduino IDE does not pass on #define NO_GLOBAL_EEPROM which would prevent the double declaration of the EEPROM object
@@ -426,6 +433,7 @@ int8_t max_valve[MAX_CUL_DEVICES] = { -1 };
 #if defined(ESP32)
 uint64_t minimum_SD_size = 0;
     #include "FS.h"
+  #if !defined(BSB_MINIMAL_GATEWAY)
     #include <LittleFS.h>
   #if (!defined(FORCE_SD_MMC_ON_NODEMCU) && !defined(SOC_SDMMC_HOST_SUPPORTED))    // Joy-It NodeMCU with SPI-based SD card reader or board without SD_MMC support
     #include "SD.h"
@@ -434,6 +442,9 @@ FS& SDCard = SD;
   #else
     #include "SD_MMC.h"
 FS& SDCard = SD_MMC;
+  #endif
+  #else
+FS SDCard(nullptr);
   #endif
 #else     // !ESP32
 int32_t minimum_SD_size = 0;
@@ -1835,10 +1846,10 @@ void printPStr(uint_farptr_t outstr, uint16_t outstr_len) {
 //  if (bigBuffPos > 0) flushToWebClient();
 }
 
+#include "include/gateway_policy.h"
 #include "include/print_webpage.h"
-#include "include/storage_management.h"
 
-#if defined(ESP32)
+#if defined(ESP32) && !defined(BSB_MINIMAL_GATEWAY)
 void init_ota_update(){
   if(enable_ota_update) {
     update_server.on("/", HTTP_GET, []() {
@@ -2033,6 +2044,7 @@ void generateConfigPage(void) {
 }
 
 uint8_t takeNewConfigValueFromUI_andWriteToRAM(int option_id, char *buf) {
+  if (!gatewayConfigVisible(option_id)) return 2;
   bool found = false;
   configuration_struct cfg;
 
@@ -2165,6 +2177,7 @@ return 1;
 }
 
 bool SaveConfigFromRAMtoEEPROM() {
+  gatewayNormalizeConfiguration();
   bool buschanged = false;
   bool needReboot = false;
   //save new values from RAM to EEPROM
@@ -2207,7 +2220,7 @@ bool SaveConfigFromRAMtoEEPROM() {
           if(BME_Sensors > 16) BME_Sensors = 16;
           needReboot = true;
           break;
-#if defined(ESP32)
+#if defined(ESP32) && !defined(BSB_MINIMAL_GATEWAY)
         case CF_OTA_UPDATE:
           if (enable_ota_update){
             init_ota_update();
@@ -2430,14 +2443,17 @@ void generateWebConfigPage(bool printOnly) {
 
     memcpy(&cfg, &config[i], sizeof(cfg));
 
-    if (cfg.var_type == CDT_VOID) continue;
+    if (cfg.var_type == CDT_VOID || !gatewayConfigVisible(cfg.id)) continue;
     if(!printOnly){
-      if(config_level == 0 && !(cfg.flags & OPT_FL_BASIC)) continue;
-      if(config_level == 1 && !(cfg.flags & OPT_FL_ADVANCED)) continue;
+      // Minimal settings are selected by gatewayConfigVisible.
     }
     byte *variable = getConfigVariableAddress(cfg.id);
     if (!variable) continue;
 
+    if (!printOnly && cfg.id == CF_LOGMODE) {
+      printFmtToWebClient("<tr><td>MQTT</td><td>Publishing</td><td><select name='option_%d' aria-label='MQTT publishing'><option value='0'%s>Off</option><option value='4'%s>On</option></select></td></tr>", cfg.id + 1, (LoggingMode & CF_LOGMODE_MQTT) ? "" : " selected", (LoggingMode & CF_LOGMODE_MQTT) ? " selected" : "");
+      continue;
+    }
     printToWebClient("<tr><td>");
 //Print param category
     printToWebClient(catalist[cfg.category].desc);
@@ -2452,7 +2468,7 @@ void generateWebConfigPage(bool printOnly) {
     if(!printOnly){
       switch (cfg.input_type) {
         case CPI_TEXT:
-        printFmtToWebClient("<input type='%s' id='option_%d' name='option_%d' ", cfg.flags & OPT_FL_PASSWORD ? "password":"text", cfg.id + 1, cfg.id + 1);
+        printFmtToWebClient("<input type='%s' id='option_%d' name='option_%d' ", (cfg.flags & OPT_FL_PASSWORD) || cfg.id == CF_BASICAUTH ? "password":"text", cfg.id + 1, cfg.id + 1);
         switch (cfg.var_type) {
           case CDT_MAC:
             printToWebClient("pattern='([0-9A-Fa-f]{2}[-:]){5}[0-9A-Fa-f]{2}'");
@@ -2600,9 +2616,8 @@ void generateJSONwithConfig() {
 
     memcpy(&cfg, &config[i], sizeof(cfg));
 
-    if (cfg.var_type == CDT_VOID) continue;
-    if(config_level == 0 && !(cfg.flags & OPT_FL_BASIC)) continue;
-    if(config_level == 1 && !(cfg.flags & OPT_FL_ADVANCED)) continue;
+    if (cfg.var_type == CDT_VOID || !gatewayConfigVisible(cfg.id)) continue;
+    // Minimal settings are selected by gatewayConfigVisible.
     byte *variable = getConfigVariableAddress(cfg.id);
     if (!variable) continue;
     if (notFirst) {printToWebClient("\r\n    },\r\n");} else notFirst = true;
@@ -2719,6 +2734,7 @@ void generateJSONwithConfig() {
  *   log_parameters
  * *************************************************************** */
 void LogTelegram(byte* msg) {
+#if !defined(BSB_MINIMAL_GATEWAY)
   if (!(logTelegram & LOGTELEGRAM_ON) || !(LoggingMode & CF_LOGMODE_SD_CARD)) return;
   File dataFile;
   uint32_t cmd;
@@ -2872,6 +2888,7 @@ void LogTelegram(byte* msg) {
       dataFile.close();
     }
   }
+#endif
 }
 
 #define MAX_PARAM_LEN 22
@@ -4491,6 +4508,9 @@ bool createdatalogFileAndWriteHeader() {
 
 #ifdef ESP32
 uint64_t usedBytes() {
+#if defined(BSB_MINIMAL_GATEWAY)
+  return 0;
+#else
   if (LogDestination == SDCARD) {
   #if (!defined(FORCE_SD_MMC_ON_NODEMCU) && !defined(SOC_SDMMC_HOST_SUPPORTED))   // NodeMCU or board without SD_MMC support
     return SD.usedBytes();
@@ -4500,9 +4520,13 @@ uint64_t usedBytes() {
   } else {
     return LittleFS.usedBytes();
   }
+#endif
 }
 
 uint64_t totalBytes() {
+#if defined(BSB_MINIMAL_GATEWAY)
+  return 0;
+#else
   if (LogDestination == SDCARD) {
   #if (!defined(FORCE_SD_MMC_ON_NODEMCU) && !defined(SOC_SDMMC_HOST_SUPPORTED))   // NodeMCU or board without SD_MMC support
     return SD.totalBytes();
@@ -4512,6 +4536,7 @@ uint64_t totalBytes() {
   } else {
     return LittleFS.totalBytes();
   }
+#endif
 }
 #endif
 
@@ -4717,10 +4742,11 @@ void loop() {
 
         // perform HTTP-Authentification by reading the remaining client data and look for credentials
         // Parsing headers
+        const bool gatewayPost = !strncmp(cLineBuffer, "POST ", 5);
+        bool gatewayTokenOK = false;
+        unsigned gatewayBodyLength = 0;
         static int buffershift = 48;
         size_t charcount=buffershift;  //Reserve space in buffer for ETag (Max 32 chars)
-        const bool sdPost = !strncmp(cLineBuffer, "POST ", 5);
-        unsigned sdBodyLength = 0;
         uint8_t httpflags = 0; //bit 0 - authenticated: 0 - no, 1 - yes
                                //bit 1 - client browser accept gzip: 0 - no, 2 - yes
                                //bit 2 - HEAD request received from client: 0 - no, 4 - yes
@@ -4740,9 +4766,8 @@ void loop() {
             if (c == '\n') {
               // you're starting a new line
               currentLineIsBlank = true;
-              if (!strncasecmp(outBuf + buffershift, "Content-Length:", 15)) {
-                sdBodyLength = strtoul(outBuf + buffershift + 15, nullptr, 10);
-              }
+              if (!strncasecmp(outBuf + buffershift, "X-BSB-Token:", 12)) gatewayTokenOK = gatewayTokenMatches(outBuf + buffershift + 12);
+              if (!strncasecmp(outBuf + buffershift, "Content-Length:", 15)) gatewayBodyLength = strtoul(outBuf + buffershift + 15, nullptr, 10);
               //Execute only if flag not set because strstr more expensive than bitwise operation
               if (!(httpflags & HTTP_GZIP) && strstr(outBuf + buffershift,"Accept-Encoding") != 0 && strstr(outBuf+16 + buffershift, "gzip") != 0) {
                 httpflags |= HTTP_GZIP;
@@ -4838,8 +4863,9 @@ void loop() {
           *p='/';
         }
 
-        if (sdManagement(p, sdPost, sdBodyLength, isSerial)) break;
+        if (!gatewayAllowRequest(p, gatewayPost, gatewayTokenOK, gatewayBodyLength)) break;
 
+#if !defined(BSB_MINIMAL_GATEWAY)
         if (webserver) {
           printToDebug("URL: ");
           if (!strcmp(p, "/")) {
@@ -4962,6 +4988,7 @@ void loop() {
             break;
           }
         }
+#endif
         if (p[1] != 'J' && p[1] != 'C') {
           while (client.available()) client.read();
         } else {
@@ -5237,6 +5264,7 @@ void loop() {
           webPrintFooter();
           break;
         }
+#if !defined(BSB_MINIMAL_GATEWAY)
         if (p[1]=='Q' && p[2] !='D') {
           webPrintHeader();
           if (bus_type > 1) {
@@ -5750,6 +5778,7 @@ void loop() {
             break;
           }
         }
+#endif
         if (p[1]=='J') {
           uint32_t cmd=0;
           // Parse potential JSON payload
@@ -5894,7 +5923,7 @@ void loop() {
             uint8_t json_parameter = 0;
             i = bus->getBusType();
             if (i != BUS_PPS) {
-              if ((default_flag & FL_RONLY) != FL_RONLY || ((default_flag & FL_SW_CTL_RONLY) == FL_SW_CTL_RONLY && programWriteMode)) json_parameter = 1;
+              if ((default_flag & FL_SW_CTL_RONLY) ? programWriteMode > 0 : (default_flag & FL_RONLY) == 0) json_parameter = 1;
             } else {
               if (pps_write == 1)  json_parameter = 1;
             }
@@ -6384,6 +6413,7 @@ next_parameter:
           break;
         }
 
+#if !defined(BSB_MINIMAL_GATEWAY)
         if (p[1]=='D') { // access datalog file
   #if defined(ESP32)
           if (esp32_save_energy == true && network_type != WLAN) {
@@ -6569,6 +6599,7 @@ next_parameter:
           break;
         }
 
+#endif
         if (p[1]=='C'){ // dump configuration
           if (!(httpflags & HTTP_FRAG)) webPrintHeader();
 
@@ -6598,7 +6629,7 @@ next_parameter:
             case 'I': {//Parse HTTP form and implement changes
               applyingConfig();
               generateWebConfigPage(false);
-              generateConfigPage(); 
+              // Status is on the minimal home page.
               UpdateMaxDeviceList(); //Update list MAX! devices
               if (!(httpflags & HTTP_FRAG)) webPrintFooter();
               flushToWebClient();
@@ -6609,7 +6640,7 @@ next_parameter:
             break;
               //no break here.
             case 'O': {//Just print current configuration (for debug purposes)
-              generateConfigPage();
+              // Status is on the minimal home page.
               generateWebConfigPage(true);
               if (!(httpflags & HTTP_FRAG)) webPrintFooter();
               flushToWebClient();
@@ -6617,7 +6648,7 @@ next_parameter:
             break;
             default:
               generateWebConfigPage(false);
-              generateConfigPage();
+              // Status is on the minimal home page.
               if (!(httpflags & HTTP_FRAG)) webPrintFooter();
               flushToWebClient();
 // EEPROM dump require ~3 sec so let it be last operation.
@@ -6627,6 +6658,7 @@ next_parameter:
             }
           break;
         }
+#if !defined(BSB_MINIMAL_GATEWAY)
         if (p[1]=='L') {
           webPrintHeader();
           switch (p[2]) {
@@ -6779,6 +6811,7 @@ next_parameter:
           webPrintFooter();
           break;
         }
+#endif
         if (p[1]=='N'){           // Reset Arduino...
           webPrintHeader();
           if (p[2]=='E') {
@@ -7058,6 +7091,7 @@ next_parameter:
     }
   }
 
+#if !defined(BSB_MINIMAL_GATEWAY)
   if ((LoggingMode & (CF_LOGMODE_SD_CARD|CF_LOGMODE_UDP))) {
     if (((millis() - lastLogTime >= (log_interval * 1000)) && log_interval > 0) || log_now > 0) {
 //    SetDateTime(); // receive inital date/time from heating system
@@ -7397,6 +7431,7 @@ next_parameter:
     }
   }
 
+#endif
   if (debug_mode == 2) {
     if (haveTelnetClient == false) {
       telnetClient = telnetServer->accept();
@@ -7419,7 +7454,9 @@ next_parameter:
 #endif
 #if defined(ESP32)
  if(enable_ota_update)
+#if !defined(BSB_MINIMAL_GATEWAY)
   update_server.handleClient();
+#endif
 #endif
 
 #if defined(ESP32)
@@ -7619,6 +7656,7 @@ void dateTime(uint16_t* date, uint16_t* time) {
 }
 #endif
 
+#if !defined(BSB_MINIMAL_GATEWAY)
 void startLoggingDevice() {
   Serial.print("LogDestination: ");
   Serial.println(LogDestination);
@@ -7640,7 +7678,7 @@ void startLoggingDevice() {
     if(!SD.begin(SD_CS)){
     #else                               // Olimex or Joy-It NodeMCU with SD_MMC
     SD_MMC.end();
-    if(!SD_MMC.begin("", true, false, 10000)){
+    if(!SD_MMC.begin("", true)){
     #endif
       printToDebug("SD card failed\r\n");
     } else {
@@ -7669,6 +7707,10 @@ void startLoggingDevice() {
   minimum_SD_size = 100;
   #endif
 }
+
+#else
+void startLoggingDevice() {}
+#endif
 
 void createTemporaryAP () {
 #if defined (ESP32)
@@ -7913,6 +7955,7 @@ active_cmdtbl_size = sizeof(cmdtbl)/sizeof(cmdtbl[0]);
 #else
   printFmtToDebug("Microcontroller: %s\r\n", USB_PRODUCT);
 #endif
+  gatewayNormalizeConfiguration();
 // BSB/LPB/PPS bus init
   byte temp_bus_pins[2];
   if (bus_pins[0] && bus_pins[1]) {
@@ -8448,7 +8491,9 @@ active_cmdtbl_size = sizeof(cmdtbl)/sizeof(cmdtbl[0]);
 
 // Set up web-based over-the-air updates for ESP32
 #if defined(ESP32)
+#if !defined(BSB_MINIMAL_GATEWAY)
   init_ota_update();
+#endif
 #endif
 
 #include "BSB_LAN_custom_setup.h"

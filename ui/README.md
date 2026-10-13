@@ -1,30 +1,48 @@
-# Refined UI
+# MQTT minimal branch
 
-Interface and SD storage customisation of BSB-LAN: embedded light-theme interface, responsive navigation, read-only overview, searchable parameter pages and settings accessibility improvements.
+The `mqtt-minimal` branch is a compact BSB-LAN application profile with the
+original bus/decoder and MQTT engine. `refined-ui` remains the richer variant.
+The minimal firmware has plain status, parameter and essential Settings pages.
+No SD card, local history, formatting, charts, raw parameter-dump generation,
+external sensor polling or web OTA service is used. Wi-Fi/Ethernet, the native
+parameter JSON API, MQTT TLS and Home Assistant discovery remain available.
 
-The bus driver, parameter decoder, device-specific table and boiler write-protection configuration are unchanged. The main firmware has eight added lines and a lower SD clock setting for an authenticated SD route and POST body length; storage operations live in a separate board-specific header. No boiler write endpoint is added. Settings retain upstream behaviour and authentication. The overview uses existing `/JI` and `/JQ` APIs and requests only parameter definitions present in the active table.
+Retain your private `BSB_LAN_config.h` and Frederik's exact
+`BSB_LAN_custom_defs.h`. The personal header is compiled directly; no schema
+conversion or parameter renumbering is performed. It is ignored by Git, as are
+credentials and configured binaries. Copy the supplied header into BSB_LAN
+before building; placing it on an SD card does not install it. Set
+`DEFAULT_FLAG FL_SW_CTL_RONLY` in the private config to expose write modes.
+The application itself starts read-only until a persisted write level is chosen.
+Complete permits writable OEM settings but never overrides explicit read-only
+parameter flags.
 
-Automatic refreshing is off initially, runs 30 seconds after completion when enabled, pauses in hidden tabs and stops after three failed attempts. Network operations run sequentially with a 60-second request timeout. Missing definitions, failed queries, disabled values, valid zero and stale readings have separate presentations.
-
-Source assets live in `ui/console.css` and `ui/console.js`; regenerate the checked-in firmware include with:
+Build normally for the board with the Minimal SPIFFS partition. Regenerate and
+verify the small application assets using:
 
 ```text
-python ui/build_assets.py
-node ui/test_readings.cjs
+python ui/build_minimal.py
+python ui/verify_engine.py
+node ui/test_minimal.cjs
+python home-assistant/test_budget.py
 ```
 
-Build using the normal upstream configuration, your correct board and Minimal SPIFFS. Personal configuration, credentials and configured binaries are excluded from Git. Preserve your current device-specific file when updating. Do not replace it with the experimental generator's partial table.
+The budget-template test uses PyYAML and Jinja2 and does not replace running
+Home Assistant validation. See [server integration](../home-assistant/README.md)
+for MQTT settings, topics and the seasonal budget blueprint.
 
-The optional loopback preview uses **labelled sample data** and never connects to a heater:
+`gateway_profile.h` selects the profile. The protocol/decoder remains unchanged;
+guards in the application omit optional services. The unused temporary
+parameter-dump table is reduced to one sentinel entry; Frederik's real table
+is intact. Never enable raw table generation in this profile without restoring
+the original table capacity. JSON /JI reports the actual software write mode.
 
-```text
-python ui/preview_server.py
-```
+Parameter writes use authenticated POST /JS with X-BSB-Token from the page's
+gateway-token meta element; the existing parameter/value/type/destination JSON
+contract is retained. The local page's HTTP Basic authentication is inherited;
+remote web management requires the server's HTTPS proxy or VPN. MQTT commands
+remain upstream-compatible. No custom authentication/session framework is added.
 
-Preview paths: `/` for available readings, `/basic/` for missing definitions, `/offline/` for network failure, `/C` for settings and `/K` for category filtering, `/SD` for storage management. Device configuration writes and parameter downloads are not simulated. Browser validation covers these UI states; actual device and bus checks must also be performed after flashing.
-
-Upstream attribution and licence remain in the root README. This is a custom UI branch, not an official BSB-LAN release.
-
-SD management is exposed at /SD on ESP32-POE-ISO. Supports status/capacity, mount without formatting, unmount, root-file downloads and confirmed deletion, and confirmed full-card format using public ESP-IDF APIs. Formatting can prepare an unreadable filesystem after typed confirmation; card communication must work first. SD access uses a 10 MHz clock. Stop SD logging, averages, telegram logging and SD web serving first. No internal flash operations. Downloads limited to 1 MiB. Preview never performs storage actions. Format hardware validation requires a disposable test card and is not performed on user data.
-
-Storage management shares the existing SD_MMC object and upstream logging files. Configure logging uses the existing Settings endpoint; no new boiler message decoding or automatic parameter writes. Storage audit rotates at 256 KiB to one previous file, records boot identifier, uptime, action, validated filename and result, and excludes credentials. Format erases previous audit history; the successful format creates a new entry. An unavailable card cannot retain an audit entry.
+Preserve upstream attribution, the CC BY-NC-SA 4.0 license statement in the root
+README and bundled dependencies' licenses. This branch is a custom profile,
+not an official upstream release. See QA.md for measured validation and limits.

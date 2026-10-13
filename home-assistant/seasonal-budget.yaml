@@ -1,0 +1,169 @@
+blueprint:
+  name: BSB-LAN seasonal estimated gas budget
+  description: >-
+    Server-side soft heating budget. Select a monthly utility-meter sensor based
+    on estimated consumption in m³ and a writable comfort-setpoint entity.
+    This cannot guarantee a physical gas limit or a tariff. Hot water and boiler
+    protection are not changed. Starts only when the chosen enable helper is on.
+    Manual setpoint changes relinquish control and turn the enable helper off.
+    Use separate saved/active/applied helpers for each heating circuit.
+  domain: automation
+  input:
+    enabled:
+      name: Enable helper
+      selector: {entity: {domain: input_boolean}}
+    monthly_gas:
+      name: Monthly estimated consumption (m³)
+      description: A monthly Utility Meter helper; do not select a lifetime total.
+      selector: {entity: {domain: sensor}}
+    setpoint:
+      name: Heating comfort setpoint
+      description: BSB-LAN discovery exposes writable temperatures as text entities.
+      selector: {entity: {domain: [text, number]}}
+    active:
+      name: Budget owns setpoint helper
+      selector: {entity: {domain: input_boolean}}
+    saved:
+      name: Saved setpoint helper
+      selector: {entity: {domain: input_number}}
+    applied:
+      name: Last applied setpoint helper
+      selector: {entity: {domain: input_number}}
+    annual_mj:
+      name: Annual planning allowance (MJ)
+      description: Set this from your applicable contract; the base MVM example is 63645 MJ.
+      default: 63645
+      selector: {number: {min: 1, max: 500000, step: 1, mode: box}}
+    conversion:
+      name: Effective MJ per meter m³
+      description: Heating value × correction factor from your bill. Zero disables writes.
+      default: 0
+      selector: {number: {min: 0, max: 50, step: 0.01, mode: box}}
+    fraction:
+      name: Budget fraction
+      description: Headroom for estimates. 0.9 means aim for 90% of the planning allowance.
+      default: 0.9
+      selector: {number: {min: 0.1, max: 1, step: 0.01, mode: box}}
+    minimum:
+      name: Minimum comfort setpoint (°C)
+      default: 16
+      selector: {number: {min: 10, max: 25, step: 0.5, mode: box}}
+    reduction:
+      name: Setback when ahead of budget (°C)
+      default: 1.5
+      selector: {number: {min: 0.5, max: 5, step: 0.5, mode: box}}
+    profile:
+      name: Monthly planning weights, January–December
+      description: >-
+        MVM's published rounded monthly MJ allocation is the default seasonal
+        shape, not an invoice calculator. Twelve non-negative numbers, one per month.
+      default: [12365, 10421, 8915, 5145, 1827, 635, 512, 565, 1109, 3724, 7490, 10937]
+      selector: {object: {}}
+
+mode: single
+max_exceeded: silent
+triggers:
+  - trigger: time_pattern
+    minutes: /5
+  - trigger: homeassistant
+    event: start
+  - trigger: state
+    entity_id: !input enabled
+
+variables:
+  enable_entity: !input enabled
+  gas_entity: !input monthly_gas
+  setpoint_entity: !input setpoint
+  active_entity: !input active
+  saved_entity: !input saved
+  applied_entity: !input applied
+  annual: !input annual_mj
+  mj_per_m3: !input conversion
+  budget_fraction: !input fraction
+  floor: !input minimum
+  setback: !input reduction
+  weights: !input profile
+  valid: >-
+    {{ is_number(states(gas_entity)) and states(gas_entity)|float >= 0
+       and state_attr(gas_entity,'unit_of_measurement') in ['m³','m3']
+       and is_number(states(setpoint_entity)) and mj_per_m3|float > 0
+       and weights is sequence and weights is not string and weights is not mapping and weights|length == 12
+       and weights|select('number')|list|length == 12
+       and weights|min >= 0 and weights|sum > 0 }}
+  target_now: "{{ states(setpoint_entity)|float(0) }}"
+  owns: >-
+    {{ is_state(active_entity,'on') and is_number(states(applied_entity))
+       and (target_now|float - states(applied_entity)|float)|abs < 0.05 }}
+  ahead: >-
+    {% if valid %}
+      {% set start = now().replace(day=1,hour=0,minute=0,second=0,microsecond=0) %}
+      {% set end = (start + timedelta(days=32)).replace(day=1) %}
+      {% set elapsed = [86400, as_timestamp(now())-as_timestamp(start)]|max %}
+      {% set span = as_timestamp(end)-as_timestamp(start) %}
+      {% set month_mj = annual|float * weights[now().month-1]|float / weights|sum %}
+      {{ states(gas_entity)|float * mj_per_m3|float > month_mj * budget_fraction|float * elapsed / span }}
+    {% else %}{{ false }}{% endif %}
+
+actions:
+  # A changed/unknown target is never claimed as owned.
+  - choose:
+      - conditions: "{{ is_state(active_entity,'on') and is_number(states(setpoint_entity)) and not owns }}"
+        sequence:
+          - action: input_boolean.turn_off
+            target: {entity_id: "{{ active_entity }}"}
+          - action: input_boolean.turn_off
+            target: {entity_id: "{{ enable_entity }}"}
+          - stop: Manual setpoint change; budget control relinquished.
+  - condition: template
+    value_template: "{{ is_number(states(setpoint_entity)) }}"
+  - choose:
+      - conditions: "{{ is_state(enable_entity,'on') and valid and ahead and not is_state(active_entity,'on') }}"
+        sequence:
+          - variables:
+              proposed: "{{ [floor|float, target_now|float - setback|float]|max }}"
+          - condition: template
+            value_template: "{{ proposed|float < target_now|float - 0.05 }}"
+          - action: input_number.set_value
+            target: {entity_id: "{{ saved_entity }}"}
+            data: {value: "{{ target_now }}"}
+          - action: input_number.set_value
+            target: {entity_id: "{{ applied_entity }}"}
+            data: {value: "{{ proposed }}"}
+          - action: input_boolean.turn_on
+            target: {entity_id: "{{ active_entity }}"}
+          - choose:
+              - conditions: "{{ setpoint_entity.startswith('number.') }}"
+                sequence:
+                  - action: number.set_value
+                    target: {entity_id: "{{ setpoint_entity }}"}
+                    data: {value: "{{ proposed }}"}
+            default:
+              - action: text.set_value
+                target: {entity_id: "{{ setpoint_entity }}"}
+                data: {value: "{{ proposed|string }}"}
+          - wait_template: "{{ is_number(states(setpoint_entity)) and (states(setpoint_entity)|float - proposed|float)|abs < 0.05 }}"
+            timeout: 00:01:00
+            continue_on_timeout: true
+          - if: "{{ not wait.completed }}"
+            then:
+              - action: input_boolean.turn_off
+                target: {entity_id: "{{ enable_entity }}"}
+      - conditions: "{{ owns and (not is_state(enable_entity,'on') or (valid and not ahead)) and is_number(states(saved_entity)) }}"
+        sequence:
+          - choose:
+              - conditions: "{{ setpoint_entity.startswith('number.') }}"
+                sequence:
+                  - action: number.set_value
+                    target: {entity_id: "{{ setpoint_entity }}"}
+                    data: {value: "{{ states(saved_entity)|float }}"}
+            default:
+              - action: text.set_value
+                target: {entity_id: "{{ setpoint_entity }}"}
+                data: {value: "{{ states(saved_entity) }}"}
+          - wait_template: "{{ is_number(states(setpoint_entity)) and (states(setpoint_entity)|float - states(saved_entity)|float)|abs < 0.05 }}"
+            timeout: 00:01:00
+            continue_on_timeout: true
+          - if: "{{ wait.completed }}"
+            then:
+              - action: input_boolean.turn_off
+                target: {entity_id: "{{ active_entity }}"}
