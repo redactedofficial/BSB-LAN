@@ -1,0 +1,10 @@
+const assert = require('node:assert/strict');
+const {reading} = require('./console.js');
+assert.equal(reading({error:0,value:'0',unit:'°C'},true).value,'0 °C','Zero is a valid measurement');
+assert.equal(reading({error:0,value:'---',unit:'°C'},true).state,'Unavailable','Disabled values must not become zero');
+assert.equal(reading({error:7,value:'99'},true).state,'Not supported','Error responses must not show their value as a reading');
+assert.equal(reading({error:0,value:'42'},false).state,'Definition not loaded','No invented readings for absent definitions');
+assert.equal(reading(null,true).state,'Not read yet');
+assert.equal(reading({error:0,value:'21.5',unit:'&deg;C'},true).value,'21.5 °C');
+assert.equal(reading({value:'42'},true).state,'Read failed','Incomplete API responses fail closed');
+console.log('7 reading-state checks passed.');

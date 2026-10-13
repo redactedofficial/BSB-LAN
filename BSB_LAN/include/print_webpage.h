@@ -15,76 +15,45 @@ void webPrintHeader(void) {
   flushToWebClient();
   printHTTPheader(HTTP_OK, MIME_TYPE_TEXT_HTML, HTTP_ADD_CHARSET_TO_HEADER, HTTP_FILE_NOT_GZIPPED, HTTP_NO_DOWNLOAD, HTTP_DO_NOT_CACHE);
   printPStr(header_html, sizeof(header_html));
+  printPStr(console_style, sizeof(console_style));
   printPStr(header_html2, sizeof(header_html2));
-  printPStr(header_html3, sizeof(header_html3));
-  printToWebClient("<a href='/");
+  printPStr(console_script, sizeof(console_script));
+  printToWebClient("<a class='skip-link' href='#app-main'>Skip to content</a><header class='site-header'><div class='header-inner'><a class='brand' id='main_link' href='/");
   printPassKey();
-  printToWebClient("' ID=main_link class='logo'>");
+  printToWebClient("'>");
   printPStr(svg_favicon, sizeof(svg_favicon));
-//  printToWebClient("<img width=10% height=10% src='/favicon.svg'></A>\r\n");
-  printToWebClient("</A></center>\r\n");
-  printToWebClient("<table align=center><tr bgcolor=#f0f0f0>");
-  printToWebClient("<td class=\"header\" width=20% align=center>");
-
-  printToWebClient("<a href='/");
+  printToWebClient("<strong>BSB-LAN</strong><span>/ Heating console</span></a><nav class='site-nav' aria-label='Main navigation'><a href='/");
   printPassKey();
-  printToWebClient("K'>" MENU_TEXT_HFK);
-
-  printToWebClient("</a></td>");
-  printToWebClient("<td class=\"header\" width=20% align=center>");
-  printToWebClient("<a href='/");
+  printToWebClient("'>Overview</a><a href='/");
+  printPassKey();
+  printToWebClient("K'>" MENU_TEXT_HFK "</a><a href='/");
+  printPassKey();
+  printToWebClient("C'>" MENU_TEXT_CFG "</a><div class='nav-tools'><a href='/");
   printPassKey();
   printFmtToWebClient("K%d'>", CAT_USERSENSORS);
   printToWebClient(STR_TEXT_SNS);
-
-  printToWebClient("</a></td>");
-  printToWebClient("<td class=\"header\" width=20% align=center>");
-
-  if (!(LoggingMode & CF_LOGMODE_SD_CARD)) {
-    printToWebClient("<font color=#000000>" MENU_TEXT_DLG "</font></td>");
-  } else {
+  printToWebClient("</a>");
+  if (LoggingMode & CF_LOGMODE_SD_CARD) {
     printToWebClient("<a href='/");
     printPassKey();
-    printToWebClient("DG'>" MENU_TEXT_SLG);
-    printToWebClient("</a></td>");
+    printToWebClient("DG'>" MENU_TEXT_SLG "</a>");
   }
-
-  printToWebClient("<td class=\"header\" width=20% align=center>");
-
   printToWebClient("<a href='/");
   printPassKey();
-  printToWebClient("Q' TARGET='_new'>" MENU_TEXT_CHK);
-  printToWebClient("</a></td>");
-
-  printToWebClient("</tr>\r\n<tr bgcolor=#f0f0f0>");
-  printToWebClient("<td class=\"header\" width=20% align=center>");
-
-  printToWebClient("<a href='/");
-  printPassKey();
-  printToWebClient("C'>" MENU_TEXT_CFG);
-
-  //  client.print("</a></td><td width=20% align=center><a href='http://github.com/fredlcore/bsb_lan/blob/master/command_ref/command_ref_" str(LANG) ".md'>" MENU_TEXT_URL);
-  printToWebClient("</a></td>");
-  printToWebClient("<td class=\"header\" width=20% align=center>");
-
-  printToWebClient("<a href='");
-  printToWebClient(MENU_LINK_URL "' target='_new'>" MENU_TEXT_URL);
-
-  printToWebClient("</a></td>");
-  printToWebClient("<td class=\"header\" width=20% align=center>");
-
-  printToWebClient("<a href='");
-  printToWebClient(MENU_LINK_TOC "' target='new'>" MENU_TEXT_TOC);
-  printToWebClient("</a></td>");
-  printToWebClient("<td class=\"header\" width=20% align=center>");
-
-  printToWebClient("<a href='");
-  printToWebClient(MENU_LINK_FAQ "' target='_new'>" MENU_TEXT_FAQ);
-  printToWebClient("</a></td>");
-
-//  client.println("<td width=20% align=center><a href='http://github.com/fredlcore/bsb_lan' target='new'>GitHub Repo</a></td>");
-  printToWebClient("</tr></table>");
-  printToWebClient("<p></p><table align=center><tr><td class=\"header\">\r\n");
+  printToWebClient("Q' target='_blank' rel='noopener'>" MENU_TEXT_CHK "</a><a href='" MENU_LINK_TOC "' target='_blank' rel='noopener'>" MENU_TEXT_TOC "</a><a href='" MENU_LINK_URL "' target='_blank' rel='noopener'>" MENU_TEXT_URL "</a><a href='" MENU_LINK_FAQ "' target='_blank' rel='noopener'>" MENU_TEXT_FAQ "</a></div></nav><span class='mode-status' id='write-mode'>");
+  printToWebClient((default_flag & FL_RONLY) == FL_RONLY ? "Read-only" : "Check write mode");
+  printToWebClient("</span></div></header><main id='app-main' data-supported='");
+  // Presentation allow-list: never ask the JSON API for an absent definition.
+  const uint16_t overview_parameters[] = {8310, 8314, 8326, 8327, 8700, 8740, 8830};
+  bool notfirst = false;
+  for (uint i = 0; i < sizeof(overview_parameters) / sizeof(overview_parameters[0]); i++) {
+    if (findLine(overview_parameters[i]) >= 0) {
+      if (notfirst) printToWebClient(",");
+      printFmtToWebClient("%hu", overview_parameters[i]);
+      notfirst = true;
+    }
+  }
+  printToWebClient("'><table class='legacy-page'><tr><td class='header'>\r\n");
   flushToWebClient();
 } // --- webPrintHeader() ---
 
@@ -102,7 +71,7 @@ void webPrintHeader(void) {
  *   client object
  * *************************************************************** */
 void webPrintFooter(void) {
-  printToWebClient("</td></tr></table>\r\n</body>\r\n</html>\r\n\r\n");
+  printToWebClient("</td></tr></table></main><footer class='site-footer'><span>BSB-LAN / Heating console</span><span>Local device &middot; UI refresh does not change heating settings</span></footer>\r\n</body>\r\n</html>\r\n\r\n");
   flushToWebClient();
 } // --- webPrintFooter() ---
 

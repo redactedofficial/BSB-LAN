@@ -462,3 +462,5 @@ const char auth_req_html[] =
 #if defined(ESP32) || defined(ARDUINO_ARCH_ESP32)
 const char* serverIndex = "<form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><input type='submit' value='Update'></form>";
 #endif
+
+#include "ui_assets.h"
