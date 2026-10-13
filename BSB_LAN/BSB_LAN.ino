@@ -7640,7 +7640,7 @@ void startLoggingDevice() {
     if(!SD.begin(SD_CS)){
     #else                               // Olimex or Joy-It NodeMCU with SD_MMC
     SD_MMC.end();
-    if(!SD_MMC.begin("", true)){
+    if(!SD_MMC.begin("", true, false, 10000)){
     #endif
       printToDebug("SD card failed\r\n");
     } else {

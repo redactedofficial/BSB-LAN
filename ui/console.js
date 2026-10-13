@@ -66,7 +66,7 @@
     const buttons = () => {
       refresh.disabled = busy;
       const locked = busy || !status || status.busy || !status.selected || !status.authorized;
-      mount.disabled = locked || status.mounted; unmount.disabled = format.disabled = locked || !status.mounted;
+      mount.disabled = locked || status.mounted; unmount.disabled = locked || !status.mounted; format.disabled = locked;
       files.querySelectorAll('[data-delete]').forEach(b => b.disabled = locked || b.dataset.protected === 'true');
     };
     const bytes = n => Number(n) < 1048576 ? (Number(n)/1024).toLocaleString(undefined,{maximumFractionDigits:1})+' KiB' : (Number(n)/1048576).toLocaleString(undefined,{maximumFractionDigits:1})+' MiB';
@@ -80,7 +80,7 @@
       } finally { clearTimeout(timer); }
     }
     function render() {
-      summary.textContent = status.mounted ? `${bytes(status.used)} used of ${bytes(status.total)} · ${bytes(Math.max(0,status.total-status.used))} free` : 'No mounted card. Insert a FAT-formatted card, then choose Mount card.';
+      summary.textContent = status.mounted ? `${bytes(status.used)} used of ${bytes(status.total)} · ${bytes(Math.max(0,status.total-status.used))} free` : 'No mounted card. Insert a card and choose Mount card. Format can prepare an unreadable filesystem, but erases all card data.';
       notice.textContent = status.busy ? 'Storage is in use. Stop SD logging, averages and telegram logging, and disable SD web serving before making changes.' : !status.selected ? 'Select SD card as the storage device in Settings before making changes.' : !status.authorized ? 'Configure web authentication before making changes.' : status.mounted ? 'Card mounted' : 'Card not mounted';
       logging.textContent = `Heating data logging: ${status.logging ? 'on' : 'off'} · interval ${status.interval ?? '—'} seconds. Storage actions are recorded in storage-audit.jsonl (two files, 256 KiB each).`;
       files.replaceChildren();

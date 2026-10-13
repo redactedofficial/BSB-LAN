@@ -119,7 +119,7 @@ static bool sdManagement(const char *path, bool post, unsigned bodyLength, bool 
   String action = body.substring(first + 1, second), name = body.substring(second + 1, third), confirmation = body.substring(third + 1);
   sdNewToken(); // Reject replay, including after a failed operation.
   bool ok = false;
-  if (action == "mount") ok = SD_MMC.begin("", true, false);
+  if (action == "mount") ok = SD_MMC.begin("", true, false, 10000);
   else if (action == "unmount" && mounted) {
     if (!sdAudit(action, "", true)) { sdError(500, "Could not record unmount. Card remains mounted."); return true; }
     SD_MMC.end(); ok = true;
@@ -131,20 +131,20 @@ static bool sdManagement(const char *path, bool post, unsigned bodyLength, bool 
       ok = SD_MMC.remove("/" + name);
       if (ok && name == sdRootName(datalogFileName)) ok = createdatalogFileAndWriteHeader();
     }
-  } else if (action == "format" && mounted && name == "" && confirmation == "FORMAT") {
+  } else if (action == "format" && name == "" && confirmation == "FORMAT") {
     // Public IDF APIs own the temporary card handle; no protected members or raw sector writes.
     SD_MMC.end();
-    sdmmc_host_t host = SDMMC_HOST_DEFAULT(); host.flags = SDMMC_HOST_FLAG_1BIT;
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT(); host.flags = SDMMC_HOST_FLAG_1BIT; host.max_freq_khz = 10000;
     sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT(); slot.width = 1;
-    esp_vfs_fat_mount_config_t config = {}; config.max_files = 5; config.format_if_mount_failed = false;
+    esp_vfs_fat_mount_config_t config = {}; config.max_files = 5; config.format_if_mount_failed = true; // Only inside an explicitly confirmed format action.
     sdmmc_card_t *card = nullptr;
     esp_err_t mountedResult = esp_vfs_fat_sdmmc_mount("/bsbformat", &host, &slot, &config, &card);
     if (mountedResult == ESP_OK) {
       esp_err_t formatted = esp_vfs_fat_sdcard_format("/bsbformat", card);
       esp_err_t unmounted = esp_vfs_fat_sdcard_unmount("/bsbformat", card);
-      bool remounted = unmounted == ESP_OK && SD_MMC.begin("", true, false);
+      bool remounted = unmounted == ESP_OK && SD_MMC.begin("", true, false, 10000);
       ok = formatted == ESP_OK && remounted;
-    } else SD_MMC.begin("", true, false); // Try to restore access without automatic formatting.
+    } else SD_MMC.begin("", true, false, 10000); // Try to restore access without automatic formatting.
   } else { sdError(400, "Invalid action or confirmation."); return true; }
   if (ok && (action == "mount" || action == "format")) {
     if (!SD_MMC.exists(datalogFileName)) ok = createdatalogFileAndWriteHeader();
@@ -152,7 +152,7 @@ static bool sdManagement(const char *path, bool post, unsigned bodyLength, bool 
   }
   bool audited = action == "unmount" ? ok : sdAudit(action, name, ok);
   if (ok) sdResponse(200, String("{\"ok\":true,\"audited\":") + (audited ? "true" : "false") + "}");
-  else sdError(500, "Operation failed. Refresh status; a format failure may have erased data.");
+  else sdError(500, action == "format" ? "Format failed. Data may have been erased; check the card and refresh status." : "Card operation failed. Check card seating and compatibility, then refresh status.");
   return true;
 }
 #else
