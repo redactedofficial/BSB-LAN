@@ -7,6 +7,7 @@ import paho.mqtt.client as mqtt
 
 NUMERIC_TEMPLATE = "{{ value if is_number(value) else 'None' }}"
 TOPIC = 'homeassistant/sensor/BSB-LAN/+/config'
+CUMULATIVE_GAS_ENERGY = {'8378', '8379', '8380'}
 
 
 def normalize(topic, payload):
@@ -16,9 +17,28 @@ def normalize(topic, payload):
     if not payload or len(payload) > 65536:
         return None
     config = json.loads(payload)
-    if not isinstance(config, dict) or not config.get('state_topic', '').startswith('BSB-LAN/'):
+    if not isinstance(config, dict):
+        return None
+    state_topic = config.get('state_topic', '')
+    if not isinstance(state_topic, str):
+        return None
+    if state_topic.startswith('~/') and isinstance(config.get('~'), str):
+        state_topic = config['~'] + state_topic[1:]
+    if not state_topic.startswith('BSB-LAN/'):
         return None
     fixed = dict(config)
+    state_parts = state_topic.split('/')
+    # These LMS producer parameters are cumulative gas energy, not instantaneous
+    # consumption. Restrict the metadata fix to the verified kWh counters.
+    if (len(state_parts) == 5 and state_parts[:3] == ['BSB-LAN', '0', '36']
+            and state_parts[3] in CUMULATIVE_GAS_ENERGY
+            and state_parts[4] == 'status'
+            and fixed.get('unit_of_measurement') == 'kWh'
+            and fixed.get('device_class') == 'energy'):
+        fixed['state_class'] = 'total_increasing'
+        if state_parts[3] == '8380':
+            fixed['name'] = 'Estimated gas energy (heating + hot water)'
+            fixed['icon'] = 'mdi:fire'
     if fixed.get('device_class') == 'current' and fixed.get('unit_of_measurement') in ('µA', 'μA', 'uA'):
         fixed.pop('device_class')  # Preserve the original microamp values and unit.
     if fixed.get('unit_of_measurement') or fixed.get('state_class'):

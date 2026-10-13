@@ -1,0 +1,1524 @@
+# Circuit 1 only. Requires original BSB-LAN discovery and calendar.heating.
+# Stop/cutoff restores owned H5 contact type and flow settings; circuit 1 ends in Protection.
+# A server outage removes this automatic cutoff; native boiler limits remain.
+# Calendar is deliberately paused at each HA restart. Helper values restore.
+input_number:
+  bsb_return_stop_temperature:
+    name: Manual return-water stop temperature
+    min: 30
+    max: 55
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_manual_heat_max_minutes:
+    name: Maximum heating-cycle duration
+    min: 5
+    max: 120
+    step: 5
+    mode: box
+    unit_of_measurement: min
+  bsb_calendar_hot_target:
+    name: Calendar event return target
+    min: 30
+    max: 50
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_calendar_cool_target:
+    name: Between-events return target
+    min: 30
+    max: 50
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_calendar_hysteresis:
+    name: Return-water restart differential
+    min: 1
+    max: 5
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_cycle_return_target:
+    name: Active cycle return target
+    min: 30
+    max: 55
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_cycle_flow_target:
+    name: Active cycle flow setting
+    min: 25
+    max: 65
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_heat_flow_ceiling:
+    name: Maximum requested HC1 flow setting
+    min: 35
+    max: 60
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+input_boolean:
+  bsb_manual_heat_active:
+    name: Heating water cycle active
+  bsb_calendar_enabled:
+    name: Calendar heating enabled
+    initial: false
+  bsb_thermostat_override:
+    name: Ignore room thermostat during water cycle
+  bsb_cycle_override:
+    name: Owned cycle thermostat override
+  bsb_calendar_window_active:
+    name: Heating calendar event active
+  bsb_heat_fault:
+    name: Heating-cycle fault
+input_datetime:
+  bsb_manual_heat_deadline:
+    name: Heating cycle deadline
+    has_date: true
+    has_time: true
+  bsb_heat_next_start:
+    name: Earliest calendar heating restart
+    has_date: true
+    has_time: true
+input_text:
+  bsb_manual_heat_status:
+    name: Heating cycle status
+    max: 120
+  bsb_calendar_status:
+    name: Heating calendar status
+    max: 120
+  bsb_heat_owner:
+    name: Heating cycle owner
+    max: 20
+  bsb_saved_mode:
+    name: Saved HC1 mode
+    max: 80
+  bsb_saved_h5:
+    name: Saved H5 contact configuration
+    max: 80
+  bsb_cycle_h5:
+    name: Owned H5 contact configuration
+    max: 80
+  bsb_saved_flow:
+    name: Saved HC1 flow setting
+    max: 20
+script:
+  bsb_heat_write_checked:
+    alias: BSB checked circuit-1 setting
+    mode: queued
+    max: 10
+    fields:
+      entity:
+        description: entity
+      value:
+        description: value
+      kind:
+        description: kind
+    sequence:
+    - variables:
+        valid_write: '{{ (entity == ''select.bsb_lan_00_09_heating_circuit_1_700_operating_mode'' and value in [''0 - Protection'',
+          ''1 - Automatic'', ''2 - Reduced'', ''3 - Comfort''] and kind == ''select'') or (entity == ''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5''
+          and value in [''0 - normal closed'', ''1 - normal opened''] and kind == ''select'') or (entity == ''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc''
+          and is_number(value) and 25 <= value | float <= 80 and kind == ''text'') }}'
+    - choose:
+      - conditions: '{{ not valid_write }}'
+        sequence:
+        - variables:
+            write_result:
+              ok: false
+        - stop: Setting outside the circuit-1 allowlist
+          response_variable: write_result
+    - variables:
+        readback: '{{ ''sensor.bsb_heat_mode_readback'' if entity.startswith(''select.'') and ''700_'' in entity else (''sensor.bsb_heat_h5_readback''
+          if entity.startswith(''select.'') else ''sensor.bsb_heat_flow_readback'') }}'
+    - variables:
+        sent_at: '{{ as_timestamp(now()) }}'
+    - choose:
+      - conditions: '{{ kind == ''select'' }}'
+        sequence:
+        - action: select.select_option
+          continue_on_error: true
+          target:
+            entity_id: '{{ entity }}'
+          data:
+            option: '{{ value }}'
+      default:
+      - action: text.set_value
+        continue_on_error: true
+        target:
+          entity_id: '{{ entity }}'
+        data:
+          value: '{{ value }}'
+    - wait_template: '{{ (state_attr(readback, ''received_at'') | float(0)) >= sent_at and ((kind == ''select'' and states(entity)
+        == value and state_attr(readback, ''payload'') == value) or (kind == ''text'' and is_number(states(entity)) and is_number(state_attr(readback,
+        ''payload'')) and (states(entity) | float - value | float) | abs < 0.11 and (state_attr(readback, ''payload'') | float
+        - value | float) | abs < 0.11)) }}'
+      timeout: 00:00:20
+      continue_on_timeout: true
+    - variables:
+        write_result:
+          ok: '{{ wait.completed }}'
+    - stop: Readback checked
+      response_variable: write_result
+  bsb_heat_control:
+    alias: BSB serial water-cycle controller
+    mode: queued
+    max: 5
+    fields:
+      operation:
+        description: operation
+      target:
+        description: target
+      source:
+        description: source
+      reason:
+        description: reason
+      preserve_mode:
+        description: preserve_mode
+    sequence:
+    - choose:
+      - conditions: '{{ operation == ''start'' }}'
+        sequence:
+        - variables:
+            start_read_at: '{{ as_timestamp(now()) }}'
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/36/8314/poll
+            payload: ''
+            retain: false
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/29/5978/poll
+            payload: ''
+            retain: false
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/9/742/poll
+            payload: ''
+            retain: false
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/9/700/poll
+            payload: ''
+            retain: false
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/29/5977/poll
+            payload: ''
+            retain: false
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/33/7865/poll
+            payload: ''
+            retain: false
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/31/6700/poll
+            payload: ''
+            retain: false
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/37/8749/poll
+            payload: ''
+            retain: false
+        - wait_template: '{{ (state_attr(''sensor.bsb_heat_return_readback'', ''received_at'') | float(0)) >= start_read_at
+            and (state_attr(''sensor.bsb_heat_h5_readback'', ''received_at'') | float(0)) >= start_read_at and (state_attr(''sensor.bsb_heat_flow_readback'',
+            ''received_at'') | float(0)) >= start_read_at and (state_attr(''sensor.bsb_heat_mode_readback'', ''received_at'')
+            | float(0)) >= start_read_at and (state_attr(''sensor.bsb_heat_role_readback'', ''received_at'') | float(0)) >=
+            start_read_at and (state_attr(''sensor.bsb_heat_contact_readback'', ''received_at'') | float(0)) >= start_read_at
+            and (state_attr(''sensor.bsb_heat_error_readback'', ''received_at'') | float(0)) >= start_read_at }}'
+          timeout: 00:00:20
+          continue_on_timeout: true
+        - choose:
+          - conditions: '{{ not wait.completed }}'
+            sequence:
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.bsb_manual_heat_status
+              data:
+                value: 'Blocked: fresh boiler readback not received'
+            - stop: 'Blocked: fresh boiler readback not received'
+        - variables:
+            return_entity: sensor.bsb_lan_00_36_diagnostics_producer_8314_return_temp_actual_value
+            mode_entity: select.bsb_lan_00_09_heating_circuit_1_700_operating_mode
+            h5_entity: select.bsb_lan_00_29_configuration_5978_type_of_contact_h5
+            flow_entity: text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc
+            cutoff: '{{ target | float(0) }}'
+            requested_flow: '{{ target | float(0) + 5 }}'
+            use_override: '{{ is_state(''input_boolean.bsb_thermostat_override'', ''on'') }}'
+            feedback_valid: '{{ is_number(states(''sensor.bsb_lan_00_36_diagnostics_producer_8314_return_temp_actual_value''))
+              and state_attr(''sensor.bsb_lan_00_36_diagnostics_producer_8314_return_temp_actual_value'', ''unit_of_measurement'')
+              == ''°C'' and as_timestamp(now()) - (state_attr(''sensor.bsb_heat_return_readback'', ''received_at'') | float(0))
+              <= 180 and states(''select.bsb_lan_00_09_heating_circuit_1_700_operating_mode'') in [''0 - Protection'', ''1
+              - Automatic'', ''2 - Reduced'', ''3 - Comfort''] and states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'')
+              in [''0 - normal closed'', ''1 - normal opened''] and states(''select.bsb_lan_00_29_configuration_5977_input_h5_function_selection'')
+              == ''18 - Room thermostat HC1'' and states(''sensor.bsb_lan_00_33_io_test_7865_contact_state_h5'') in [''0'',
+              ''1''] and states(''sensor.bsb_lan_00_31_error_6700_error_signal'').split('' - '')[0] == ''0'' and is_number(states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc''))
+              and 25 <= states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc'') |
+              float <= 80 and as_timestamp(now()) - (state_attr(''sensor.bsb_heat_h5_readback'', ''received_at'') | float(0))
+              <= 180 and as_timestamp(now()) - (state_attr(''sensor.bsb_heat_flow_readback'', ''received_at'') | float(0))
+              <= 180 }}'
+            forced_contact: '{{ ''0 - normal closed'' if states(''sensor.bsb_lan_00_33_io_test_7865_contact_state_h5'') ==
+              ''0'' else ''1 - normal opened'' }}'
+        - choose:
+          - conditions: '{{ is_state(''input_boolean.bsb_manual_heat_active'', ''on'') }}'
+            sequence:
+            - stop: A water cycle already owns circuit 1
+        - choose:
+          - conditions: '{{ not feedback_valid }}'
+            sequence:
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.bsb_manual_heat_status
+              data:
+                value: 'Blocked: circuit-1 feedback missing or stale'
+            - stop: 'Blocked: circuit-1 feedback missing or stale'
+        - choose:
+          - conditions: '{{ cutoff < 30 or cutoff > 55 or requested_flow > states(''input_number.bsb_heat_flow_ceiling'')
+              | float(0) or states(''sensor.bsb_lan_00_36_diagnostics_producer_8314_return_temp_actual_value'') | float >=
+              cutoff }}'
+            sequence:
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.bsb_manual_heat_status
+              data:
+                value: 'Blocked: target reached or exceeds configured flow ceiling'
+            - stop: 'Blocked: target reached or exceeds configured flow ceiling'
+        - choose:
+          - conditions: '{{ not use_override and not ((states(''sensor.bsb_lan_00_33_io_test_7865_contact_state_h5'') == ''1''
+              and states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') == ''1 - normal opened'') or (states(''sensor.bsb_lan_00_33_io_test_7865_contact_state_h5'')
+              == ''0'' and states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') == ''0 - normal closed''))
+              }}'
+            sequence:
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.bsb_manual_heat_status
+              data:
+                value: 'Blocked: thermostat is not requesting heat; override is off'
+            - stop: 'Blocked: thermostat is not requesting heat; override is off'
+        - action: input_text.set_value
+          target:
+            entity_id: input_text.bsb_saved_mode
+          data:
+            value: '{{ states(mode_entity) }}'
+        - action: input_text.set_value
+          target:
+            entity_id: input_text.bsb_saved_h5
+          data:
+            value: '{{ states(h5_entity) }}'
+        - action: input_text.set_value
+          target:
+            entity_id: input_text.bsb_cycle_h5
+          data:
+            value: '{{ forced_contact if use_override else states(h5_entity) }}'
+        - choose:
+          - conditions: '{{ use_override }}'
+            sequence:
+            - action: input_boolean.turn_on
+              target:
+                entity_id: input_boolean.bsb_cycle_override
+          default:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.bsb_cycle_override
+        - action: input_text.set_value
+          target:
+            entity_id: input_text.bsb_saved_flow
+          data:
+            value: '{{ states(flow_entity) }}'
+        - action: input_text.set_value
+          target:
+            entity_id: input_text.bsb_heat_owner
+          data:
+            value: '{{ source }}'
+        - action: input_number.set_value
+          target:
+            entity_id: input_number.bsb_cycle_return_target
+          data:
+            value: '{{ cutoff }}'
+        - action: input_number.set_value
+          target:
+            entity_id: input_number.bsb_cycle_flow_target
+          data:
+            value: '{{ requested_flow }}'
+        - action: input_datetime.set_datetime
+          target:
+            entity_id: input_datetime.bsb_manual_heat_deadline
+          data:
+            timestamp: '{{ as_timestamp(now()) + states(''input_number.bsb_manual_heat_max_minutes'') | float(60) * 60 }}'
+        - action: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.bsb_manual_heat_active
+        - action: input_text.set_value
+          target:
+            entity_id: input_text.bsb_manual_heat_status
+          data:
+            value: Starting water cycle
+        - action: homeassistant.save_persistent_states
+        - action: script.bsb_heat_write_checked
+          response_variable: start_protection
+          data:
+            entity: select.bsb_lan_00_09_heating_circuit_1_700_operating_mode
+            value: 0 - Protection
+            kind: select
+        - choose:
+          - conditions: '{{ not start_protection.ok }}'
+            sequence:
+            - action: input_boolean.turn_on
+              target:
+                entity_id: input_boolean.bsb_heat_fault
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.bsb_manual_heat_status
+              data:
+                value: Start protection not confirmed; recovery pending
+            - stop: Retain recovery journal
+        - action: script.bsb_heat_write_checked
+          response_variable: start_flow
+          data:
+            entity: text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc
+            value: '{{ requested_flow | string }}'
+            kind: text
+        - choose:
+          - conditions: '{{ use_override }}'
+            sequence:
+            - action: script.bsb_heat_write_checked
+              response_variable: start_h5
+              data:
+                entity: select.bsb_lan_00_29_configuration_5978_type_of_contact_h5
+                value: '{{ forced_contact }}'
+                kind: select
+          default:
+          - variables:
+              start_h5:
+                ok: true
+        - choose:
+          - conditions: '{{ not start_flow.ok or not start_h5.ok }}'
+            sequence:
+            - condition: state
+              entity_id: input_boolean.bsb_manual_heat_active
+              state: 'on'
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.bsb_manual_heat_status
+              data:
+                value: 'Stopping: {{ reason | default(''Manual stop'', true) }}'
+            - choose:
+              - conditions: '{{ not preserve_mode | default(false) }}'
+                sequence:
+                - action: script.bsb_heat_write_checked
+                  response_variable: mode_ack
+                  data:
+                    entity: select.bsb_lan_00_09_heating_circuit_1_700_operating_mode
+                    value: 0 - Protection
+                    kind: select
+                - choose:
+                  - conditions: '{{ not mode_ack.ok }}'
+                    sequence:
+                    - action: input_boolean.turn_on
+                      target:
+                        entity_id: input_boolean.bsb_heat_fault
+                    - action: input_boolean.turn_off
+                      target:
+                        entity_id: input_boolean.bsb_calendar_enabled
+                    - action: input_text.set_value
+                      target:
+                        entity_id: input_text.bsb_manual_heat_status
+                      data:
+                        value: Stop not confirmed; retry pending
+                    - action: persistent_notification.create
+                      data:
+                        notification_id: bsb_heat_fault
+                        title: Heating stop not confirmed
+                        message: Check the boiler and MQTT. Circuit-1 stop will be retried; the server cannot stop an unreachable
+                          boiler.
+                    - stop: Protection was not acknowledged; retain recovery journal
+            - variables:
+                restore_read_at: '{{ as_timestamp(now()) }}'
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/29/5978/poll
+                payload: ''
+                retain: false
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/9/742/poll
+                payload: ''
+                retain: false
+            - wait_template: '{{ (state_attr(''sensor.bsb_heat_h5_readback'', ''received_at'') | float(0)) >= restore_read_at
+                and (state_attr(''sensor.bsb_heat_flow_readback'', ''received_at'') | float(0)) >= restore_read_at }}'
+              timeout: 00:00:20
+              continue_on_timeout: true
+            - choose:
+              - conditions: '{{ not wait.completed }}'
+                sequence:
+                - action: input_text.set_value
+                  target:
+                    entity_id: input_text.bsb_manual_heat_status
+                  data:
+                    value: Restoration feedback missing; retry pending
+                - action: input_boolean.turn_off
+                  target:
+                    entity_id: input_boolean.bsb_calendar_enabled
+                - stop: Keep recovery journal for retry
+            - choose:
+              - conditions: '{{ states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') == states(''input_text.bsb_cycle_h5'')
+                  and states(''input_text.bsb_saved_h5'') in [''0 - normal closed'', ''1 - normal opened''] }}'
+                sequence:
+                - action: script.bsb_heat_write_checked
+                  response_variable: h5_ack
+                  data:
+                    entity: select.bsb_lan_00_29_configuration_5978_type_of_contact_h5
+                    value: '{{ states(''input_text.bsb_saved_h5'') }}'
+                    kind: select
+                - choose:
+                  - conditions: '{{ not h5_ack.ok }}'
+                    sequence:
+                    - action: input_text.set_value
+                      target:
+                        entity_id: input_text.bsb_manual_heat_status
+                      data:
+                        value: Thermostat restore not confirmed; retry pending
+                    - action: input_boolean.turn_off
+                      target:
+                        entity_id: input_boolean.bsb_calendar_enabled
+                    - stop: Keep recovery journal for retry
+            - choose:
+              - conditions: '{{ is_number(states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc''))
+                  and is_number(states(''input_text.bsb_saved_flow'')) and (states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc'')
+                  | float - states(''input_number.bsb_cycle_flow_target'') | float) | abs < 0.11 }}'
+                sequence:
+                - action: script.bsb_heat_write_checked
+                  response_variable: flow_ack
+                  data:
+                    entity: text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc
+                    value: '{{ states(''input_text.bsb_saved_flow'') }}'
+                    kind: text
+                - choose:
+                  - conditions: '{{ not flow_ack.ok }}'
+                    sequence:
+                    - action: input_text.set_value
+                      target:
+                        entity_id: input_text.bsb_manual_heat_status
+                      data:
+                        value: Flow setting restore not confirmed; retry pending
+                    - action: input_boolean.turn_off
+                      target:
+                        entity_id: input_boolean.bsb_calendar_enabled
+                    - stop: Keep recovery journal for retry
+            - choose:
+              - conditions: '{{ states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') in [''unknown'', ''unavailable'']
+                  or not is_number(states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc''))
+                  }}'
+                sequence:
+                - action: input_text.set_value
+                  target:
+                    entity_id: input_text.bsb_manual_heat_status
+                  data:
+                    value: Restoration feedback missing; retry pending
+                - action: input_boolean.turn_off
+                  target:
+                    entity_id: input_boolean.bsb_calendar_enabled
+                - stop: Keep recovery journal for retry
+            - action: input_boolean.turn_off
+              target:
+                entity_id: input_boolean.bsb_manual_heat_active
+            - action: input_datetime.set_datetime
+              target:
+                entity_id: input_datetime.bsb_heat_next_start
+              data:
+                timestamp: '{{ as_timestamp(now()) + 600 }}'
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.bsb_manual_heat_status
+              data:
+                value: 'Stopped: {{ reason | default(''Manual stop'', true) }}'
+            - action: homeassistant.save_persistent_states
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/34/8000/poll
+                payload: ''
+                retain: false
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/34/8005/poll
+                payload: ''
+                retain: false
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/36/8310/poll
+                payload: ''
+                retain: false
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/36/8311/poll
+                payload: ''
+                retain: false
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/37/8749/poll
+                payload: ''
+                retain: false
+            - stop: Start setting not confirmed; restored owned settings
+        - action: script.bsb_heat_write_checked
+          response_variable: start_mode
+          data:
+            entity: select.bsb_lan_00_09_heating_circuit_1_700_operating_mode
+            value: 3 - Comfort
+            kind: select
+        - choose:
+          - conditions: '{{ not start_mode.ok }}'
+            sequence:
+            - condition: state
+              entity_id: input_boolean.bsb_manual_heat_active
+              state: 'on'
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.bsb_manual_heat_status
+              data:
+                value: 'Stopping: {{ reason | default(''Manual stop'', true) }}'
+            - choose:
+              - conditions: '{{ not preserve_mode | default(false) }}'
+                sequence:
+                - action: script.bsb_heat_write_checked
+                  response_variable: mode_ack
+                  data:
+                    entity: select.bsb_lan_00_09_heating_circuit_1_700_operating_mode
+                    value: 0 - Protection
+                    kind: select
+                - choose:
+                  - conditions: '{{ not mode_ack.ok }}'
+                    sequence:
+                    - action: input_boolean.turn_on
+                      target:
+                        entity_id: input_boolean.bsb_heat_fault
+                    - action: input_boolean.turn_off
+                      target:
+                        entity_id: input_boolean.bsb_calendar_enabled
+                    - action: input_text.set_value
+                      target:
+                        entity_id: input_text.bsb_manual_heat_status
+                      data:
+                        value: Stop not confirmed; retry pending
+                    - action: persistent_notification.create
+                      data:
+                        notification_id: bsb_heat_fault
+                        title: Heating stop not confirmed
+                        message: Check the boiler and MQTT. Circuit-1 stop will be retried; the server cannot stop an unreachable
+                          boiler.
+                    - stop: Protection was not acknowledged; retain recovery journal
+            - variables:
+                restore_read_at: '{{ as_timestamp(now()) }}'
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/29/5978/poll
+                payload: ''
+                retain: false
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/9/742/poll
+                payload: ''
+                retain: false
+            - wait_template: '{{ (state_attr(''sensor.bsb_heat_h5_readback'', ''received_at'') | float(0)) >= restore_read_at
+                and (state_attr(''sensor.bsb_heat_flow_readback'', ''received_at'') | float(0)) >= restore_read_at }}'
+              timeout: 00:00:20
+              continue_on_timeout: true
+            - choose:
+              - conditions: '{{ not wait.completed }}'
+                sequence:
+                - action: input_text.set_value
+                  target:
+                    entity_id: input_text.bsb_manual_heat_status
+                  data:
+                    value: Restoration feedback missing; retry pending
+                - action: input_boolean.turn_off
+                  target:
+                    entity_id: input_boolean.bsb_calendar_enabled
+                - stop: Keep recovery journal for retry
+            - choose:
+              - conditions: '{{ states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') == states(''input_text.bsb_cycle_h5'')
+                  and states(''input_text.bsb_saved_h5'') in [''0 - normal closed'', ''1 - normal opened''] }}'
+                sequence:
+                - action: script.bsb_heat_write_checked
+                  response_variable: h5_ack
+                  data:
+                    entity: select.bsb_lan_00_29_configuration_5978_type_of_contact_h5
+                    value: '{{ states(''input_text.bsb_saved_h5'') }}'
+                    kind: select
+                - choose:
+                  - conditions: '{{ not h5_ack.ok }}'
+                    sequence:
+                    - action: input_text.set_value
+                      target:
+                        entity_id: input_text.bsb_manual_heat_status
+                      data:
+                        value: Thermostat restore not confirmed; retry pending
+                    - action: input_boolean.turn_off
+                      target:
+                        entity_id: input_boolean.bsb_calendar_enabled
+                    - stop: Keep recovery journal for retry
+            - choose:
+              - conditions: '{{ is_number(states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc''))
+                  and is_number(states(''input_text.bsb_saved_flow'')) and (states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc'')
+                  | float - states(''input_number.bsb_cycle_flow_target'') | float) | abs < 0.11 }}'
+                sequence:
+                - action: script.bsb_heat_write_checked
+                  response_variable: flow_ack
+                  data:
+                    entity: text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc
+                    value: '{{ states(''input_text.bsb_saved_flow'') }}'
+                    kind: text
+                - choose:
+                  - conditions: '{{ not flow_ack.ok }}'
+                    sequence:
+                    - action: input_text.set_value
+                      target:
+                        entity_id: input_text.bsb_manual_heat_status
+                      data:
+                        value: Flow setting restore not confirmed; retry pending
+                    - action: input_boolean.turn_off
+                      target:
+                        entity_id: input_boolean.bsb_calendar_enabled
+                    - stop: Keep recovery journal for retry
+            - choose:
+              - conditions: '{{ states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') in [''unknown'', ''unavailable'']
+                  or not is_number(states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc''))
+                  }}'
+                sequence:
+                - action: input_text.set_value
+                  target:
+                    entity_id: input_text.bsb_manual_heat_status
+                  data:
+                    value: Restoration feedback missing; retry pending
+                - action: input_boolean.turn_off
+                  target:
+                    entity_id: input_boolean.bsb_calendar_enabled
+                - stop: Keep recovery journal for retry
+            - action: input_boolean.turn_off
+              target:
+                entity_id: input_boolean.bsb_manual_heat_active
+            - action: input_datetime.set_datetime
+              target:
+                entity_id: input_datetime.bsb_heat_next_start
+              data:
+                timestamp: '{{ as_timestamp(now()) + 600 }}'
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.bsb_manual_heat_status
+              data:
+                value: 'Stopped: {{ reason | default(''Manual stop'', true) }}'
+            - action: homeassistant.save_persistent_states
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/34/8000/poll
+                payload: ''
+                retain: false
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/34/8005/poll
+                payload: ''
+                retain: false
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/36/8310/poll
+                payload: ''
+                retain: false
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/36/8311/poll
+                payload: ''
+                retain: false
+            - action: mqtt.publish
+              data:
+                topic: BSB-LAN/0/37/8749/poll
+                payload: ''
+                retain: false
+            - stop: Comfort not confirmed; restored owned settings
+        - action: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.bsb_heat_fault
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/37/8749/poll
+            payload: ''
+            retain: false
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/31/6700/poll
+            payload: ''
+            retain: false
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/34/8000/poll
+            payload: ''
+            retain: false
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/34/8005/poll
+            payload: ''
+            retain: false
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/36/8310/poll
+            payload: ''
+            retain: false
+        - action: mqtt.publish
+          data:
+            topic: BSB-LAN/0/36/8311/poll
+            payload: ''
+            retain: false
+        - action: input_text.set_value
+          target:
+            entity_id: input_text.bsb_manual_heat_status
+          data:
+            value: 'Active: {{ source }} cycle to {{ cutoff }} °C return'
+      default:
+      - choose:
+        - conditions: '{{ operation == ''stop'' }}'
+          sequence:
+          - condition: state
+            entity_id: input_boolean.bsb_manual_heat_active
+            state: 'on'
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.bsb_manual_heat_status
+            data:
+              value: 'Stopping: {{ reason | default(''Manual stop'', true) }}'
+          - choose:
+            - conditions: '{{ not preserve_mode | default(false) }}'
+              sequence:
+              - action: script.bsb_heat_write_checked
+                response_variable: mode_ack
+                data:
+                  entity: select.bsb_lan_00_09_heating_circuit_1_700_operating_mode
+                  value: 0 - Protection
+                  kind: select
+              - choose:
+                - conditions: '{{ not mode_ack.ok }}'
+                  sequence:
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: input_boolean.bsb_heat_fault
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: input_boolean.bsb_calendar_enabled
+                  - action: input_text.set_value
+                    target:
+                      entity_id: input_text.bsb_manual_heat_status
+                    data:
+                      value: Stop not confirmed; retry pending
+                  - action: persistent_notification.create
+                    data:
+                      notification_id: bsb_heat_fault
+                      title: Heating stop not confirmed
+                      message: Check the boiler and MQTT. Circuit-1 stop will be retried; the server cannot stop an unreachable
+                        boiler.
+                  - stop: Protection was not acknowledged; retain recovery journal
+          - variables:
+              restore_read_at: '{{ as_timestamp(now()) }}'
+          - action: mqtt.publish
+            data:
+              topic: BSB-LAN/0/29/5978/poll
+              payload: ''
+              retain: false
+          - action: mqtt.publish
+            data:
+              topic: BSB-LAN/0/9/742/poll
+              payload: ''
+              retain: false
+          - wait_template: '{{ (state_attr(''sensor.bsb_heat_h5_readback'', ''received_at'') | float(0)) >= restore_read_at
+              and (state_attr(''sensor.bsb_heat_flow_readback'', ''received_at'') | float(0)) >= restore_read_at }}'
+            timeout: 00:00:20
+            continue_on_timeout: true
+          - choose:
+            - conditions: '{{ not wait.completed }}'
+              sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.bsb_manual_heat_status
+                data:
+                  value: Restoration feedback missing; retry pending
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.bsb_calendar_enabled
+              - stop: Keep recovery journal for retry
+          - choose:
+            - conditions: '{{ states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') == states(''input_text.bsb_cycle_h5'')
+                and states(''input_text.bsb_saved_h5'') in [''0 - normal closed'', ''1 - normal opened''] }}'
+              sequence:
+              - action: script.bsb_heat_write_checked
+                response_variable: h5_ack
+                data:
+                  entity: select.bsb_lan_00_29_configuration_5978_type_of_contact_h5
+                  value: '{{ states(''input_text.bsb_saved_h5'') }}'
+                  kind: select
+              - choose:
+                - conditions: '{{ not h5_ack.ok }}'
+                  sequence:
+                  - action: input_text.set_value
+                    target:
+                      entity_id: input_text.bsb_manual_heat_status
+                    data:
+                      value: Thermostat restore not confirmed; retry pending
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: input_boolean.bsb_calendar_enabled
+                  - stop: Keep recovery journal for retry
+          - choose:
+            - conditions: '{{ is_number(states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc''))
+                and is_number(states(''input_text.bsb_saved_flow'')) and (states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc'')
+                | float - states(''input_number.bsb_cycle_flow_target'') | float) | abs < 0.11 }}'
+              sequence:
+              - action: script.bsb_heat_write_checked
+                response_variable: flow_ack
+                data:
+                  entity: text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc
+                  value: '{{ states(''input_text.bsb_saved_flow'') }}'
+                  kind: text
+              - choose:
+                - conditions: '{{ not flow_ack.ok }}'
+                  sequence:
+                  - action: input_text.set_value
+                    target:
+                      entity_id: input_text.bsb_manual_heat_status
+                    data:
+                      value: Flow setting restore not confirmed; retry pending
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: input_boolean.bsb_calendar_enabled
+                  - stop: Keep recovery journal for retry
+          - choose:
+            - conditions: '{{ states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') in [''unknown'', ''unavailable'']
+                or not is_number(states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc''))
+                }}'
+              sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.bsb_manual_heat_status
+                data:
+                  value: Restoration feedback missing; retry pending
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.bsb_calendar_enabled
+              - stop: Keep recovery journal for retry
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.bsb_manual_heat_active
+          - action: input_datetime.set_datetime
+            target:
+              entity_id: input_datetime.bsb_heat_next_start
+            data:
+              timestamp: '{{ as_timestamp(now()) + 600 }}'
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.bsb_manual_heat_status
+            data:
+              value: 'Stopped: {{ reason | default(''Manual stop'', true) }}'
+          - action: homeassistant.save_persistent_states
+          - action: mqtt.publish
+            data:
+              topic: BSB-LAN/0/34/8000/poll
+              payload: ''
+              retain: false
+          - action: mqtt.publish
+            data:
+              topic: BSB-LAN/0/34/8005/poll
+              payload: ''
+              retain: false
+          - action: mqtt.publish
+            data:
+              topic: BSB-LAN/0/36/8310/poll
+              payload: ''
+              retain: false
+          - action: mqtt.publish
+            data:
+              topic: BSB-LAN/0/36/8311/poll
+              payload: ''
+              retain: false
+          - action: mqtt.publish
+            data:
+              topic: BSB-LAN/0/37/8749/poll
+              payload: ''
+              retain: false
+        default:
+        - choose:
+          - conditions: '{{ operation == ''refresh_request'' }}'
+            sequence:
+            - condition: state
+              entity_id: input_boolean.bsb_manual_heat_active
+              state: 'on'
+            - condition: state
+              entity_id: input_boolean.bsb_thermostat_override
+              state: 'on'
+            - condition: template
+              value_template: '{{ states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') == states(''input_text.bsb_cycle_h5'')
+                and states(''sensor.bsb_lan_00_33_io_test_7865_contact_state_h5'') in [''0'', ''1''] and states(''select.bsb_lan_00_29_configuration_5977_input_h5_function_selection'')
+                == ''18 - Room thermostat HC1'' and states(''sensor.bsb_lan_00_31_error_6700_error_signal'').split('' - '')[0]
+                == ''0'' and as_timestamp(now()) - (state_attr(''sensor.bsb_heat_contact_readback'', ''received_at'') | float(0))
+                <= 180 }}'
+            - variables:
+                wanted_contact: '{{ ''0 - normal closed'' if states(''sensor.bsb_lan_00_33_io_test_7865_contact_state_h5'')
+                  == ''0'' else ''1 - normal opened'' }}'
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.bsb_cycle_h5
+              data:
+                value: '{{ wanted_contact }}'
+            - action: homeassistant.save_persistent_states
+            - action: script.bsb_heat_write_checked
+              response_variable: demand_ack
+              data:
+                entity: select.bsb_lan_00_29_configuration_5978_type_of_contact_h5
+                value: '{{ wanted_contact }}'
+                kind: select
+            - choose:
+              - conditions: '{{ not demand_ack.ok }}'
+                sequence:
+                - action: input_boolean.turn_on
+                  target:
+                    entity_id: input_boolean.bsb_heat_fault
+                - action: input_boolean.turn_off
+                  target:
+                    entity_id: input_boolean.bsb_calendar_enabled
+                - condition: state
+                  entity_id: input_boolean.bsb_manual_heat_active
+                  state: 'on'
+                - action: input_text.set_value
+                  target:
+                    entity_id: input_text.bsb_manual_heat_status
+                  data:
+                    value: 'Stopping: {{ reason | default(''Manual stop'', true) }}'
+                - choose:
+                  - conditions: '{{ not preserve_mode | default(false) }}'
+                    sequence:
+                    - action: script.bsb_heat_write_checked
+                      response_variable: mode_ack
+                      data:
+                        entity: select.bsb_lan_00_09_heating_circuit_1_700_operating_mode
+                        value: 0 - Protection
+                        kind: select
+                    - choose:
+                      - conditions: '{{ not mode_ack.ok }}'
+                        sequence:
+                        - action: input_boolean.turn_on
+                          target:
+                            entity_id: input_boolean.bsb_heat_fault
+                        - action: input_boolean.turn_off
+                          target:
+                            entity_id: input_boolean.bsb_calendar_enabled
+                        - action: input_text.set_value
+                          target:
+                            entity_id: input_text.bsb_manual_heat_status
+                          data:
+                            value: Stop not confirmed; retry pending
+                        - action: persistent_notification.create
+                          data:
+                            notification_id: bsb_heat_fault
+                            title: Heating stop not confirmed
+                            message: Check the boiler and MQTT. Circuit-1 stop will be retried; the server cannot stop an
+                              unreachable boiler.
+                        - stop: Protection was not acknowledged; retain recovery journal
+                - variables:
+                    restore_read_at: '{{ as_timestamp(now()) }}'
+                - action: mqtt.publish
+                  data:
+                    topic: BSB-LAN/0/29/5978/poll
+                    payload: ''
+                    retain: false
+                - action: mqtt.publish
+                  data:
+                    topic: BSB-LAN/0/9/742/poll
+                    payload: ''
+                    retain: false
+                - wait_template: '{{ (state_attr(''sensor.bsb_heat_h5_readback'', ''received_at'') | float(0)) >= restore_read_at
+                    and (state_attr(''sensor.bsb_heat_flow_readback'', ''received_at'') | float(0)) >= restore_read_at }}'
+                  timeout: 00:00:20
+                  continue_on_timeout: true
+                - choose:
+                  - conditions: '{{ not wait.completed }}'
+                    sequence:
+                    - action: input_text.set_value
+                      target:
+                        entity_id: input_text.bsb_manual_heat_status
+                      data:
+                        value: Restoration feedback missing; retry pending
+                    - action: input_boolean.turn_off
+                      target:
+                        entity_id: input_boolean.bsb_calendar_enabled
+                    - stop: Keep recovery journal for retry
+                - choose:
+                  - conditions: '{{ states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') == states(''input_text.bsb_cycle_h5'')
+                      and states(''input_text.bsb_saved_h5'') in [''0 - normal closed'', ''1 - normal opened''] }}'
+                    sequence:
+                    - action: script.bsb_heat_write_checked
+                      response_variable: h5_ack
+                      data:
+                        entity: select.bsb_lan_00_29_configuration_5978_type_of_contact_h5
+                        value: '{{ states(''input_text.bsb_saved_h5'') }}'
+                        kind: select
+                    - choose:
+                      - conditions: '{{ not h5_ack.ok }}'
+                        sequence:
+                        - action: input_text.set_value
+                          target:
+                            entity_id: input_text.bsb_manual_heat_status
+                          data:
+                            value: Thermostat restore not confirmed; retry pending
+                        - action: input_boolean.turn_off
+                          target:
+                            entity_id: input_boolean.bsb_calendar_enabled
+                        - stop: Keep recovery journal for retry
+                - choose:
+                  - conditions: '{{ is_number(states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc''))
+                      and is_number(states(''input_text.bsb_saved_flow'')) and (states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc'')
+                      | float - states(''input_number.bsb_cycle_flow_target'') | float) | abs < 0.11 }}'
+                    sequence:
+                    - action: script.bsb_heat_write_checked
+                      response_variable: flow_ack
+                      data:
+                        entity: text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc
+                        value: '{{ states(''input_text.bsb_saved_flow'') }}'
+                        kind: text
+                    - choose:
+                      - conditions: '{{ not flow_ack.ok }}'
+                        sequence:
+                        - action: input_text.set_value
+                          target:
+                            entity_id: input_text.bsb_manual_heat_status
+                          data:
+                            value: Flow setting restore not confirmed; retry pending
+                        - action: input_boolean.turn_off
+                          target:
+                            entity_id: input_boolean.bsb_calendar_enabled
+                        - stop: Keep recovery journal for retry
+                - choose:
+                  - conditions: '{{ states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') in [''unknown'',
+                      ''unavailable''] or not is_number(states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc''))
+                      }}'
+                    sequence:
+                    - action: input_text.set_value
+                      target:
+                        entity_id: input_text.bsb_manual_heat_status
+                      data:
+                        value: Restoration feedback missing; retry pending
+                    - action: input_boolean.turn_off
+                      target:
+                        entity_id: input_boolean.bsb_calendar_enabled
+                    - stop: Keep recovery journal for retry
+                - action: input_boolean.turn_off
+                  target:
+                    entity_id: input_boolean.bsb_manual_heat_active
+                - action: input_datetime.set_datetime
+                  target:
+                    entity_id: input_datetime.bsb_heat_next_start
+                  data:
+                    timestamp: '{{ as_timestamp(now()) + 600 }}'
+                - action: input_text.set_value
+                  target:
+                    entity_id: input_text.bsb_manual_heat_status
+                  data:
+                    value: 'Stopped: {{ reason | default(''Manual stop'', true) }}'
+                - action: homeassistant.save_persistent_states
+                - action: mqtt.publish
+                  data:
+                    topic: BSB-LAN/0/34/8000/poll
+                    payload: ''
+                    retain: false
+                - action: mqtt.publish
+                  data:
+                    topic: BSB-LAN/0/34/8005/poll
+                    payload: ''
+                    retain: false
+                - action: mqtt.publish
+                  data:
+                    topic: BSB-LAN/0/36/8310/poll
+                    payload: ''
+                    retain: false
+                - action: mqtt.publish
+                  data:
+                    topic: BSB-LAN/0/36/8311/poll
+                    payload: ''
+                    retain: false
+                - action: mqtt.publish
+                  data:
+                    topic: BSB-LAN/0/37/8749/poll
+                    payload: ''
+                    retain: false
+  bsb_manual_heat_start:
+    alias: Start manual heating cycle
+    mode: single
+    sequence:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.bsb_calendar_enabled
+    - action: script.bsb_heat_control
+      data:
+        operation: start
+        source: manual
+        target: '{{ states(''input_number.bsb_return_stop_temperature'') }}'
+  bsb_manual_heat_stop:
+    alias: Stop cycle and pause calendar
+    mode: single
+    sequence:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.bsb_calendar_enabled
+    - action: script.bsb_heat_control
+      data:
+        operation: stop
+        reason: Manual stop
+automation:
+- id: bsb_manual_return_cutoff
+  alias: BSB water-cycle cutoff and recovery
+  mode: single
+  triggers:
+  - trigger: time_pattern
+    seconds: /15
+    id: tick
+  - trigger: homeassistant
+    event: start
+    id: restart
+  - trigger: state
+    entity_id:
+    - sensor.bsb_lan_00_36_diagnostics_producer_8314_return_temp_actual_value
+    - select.bsb_lan_00_09_heating_circuit_1_700_operating_mode
+    - select.bsb_lan_00_29_configuration_5978_type_of_contact_h5
+    - text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc
+    - sensor.bsb_lan_00_33_io_test_7865_contact_state_h5
+    - sensor.bsb_lan_00_31_error_6700_error_signal
+    - input_boolean.bsb_thermostat_override
+    id: feedback
+  conditions:
+  - condition: state
+    entity_id: input_boolean.bsb_manual_heat_active
+    state: 'on'
+  - condition: state
+    entity_id: script.bsb_heat_control
+    state: 'off'
+  actions:
+  - action: mqtt.publish
+    data:
+      topic: BSB-LAN/0/36/8314/poll
+      payload: ''
+      retain: false
+  - action: mqtt.publish
+    data:
+      topic: BSB-LAN/0/33/7865/poll
+      payload: ''
+      retain: false
+  - action: mqtt.publish
+    data:
+      topic: BSB-LAN/0/31/6700/poll
+      payload: ''
+      retain: false
+  - variables:
+      current_mode: '{{ states(''select.bsb_lan_00_09_heating_circuit_1_700_operating_mode'') }}'
+      cutoff: '{{ states(''input_number.bsb_cycle_return_target'') | float(0) }}'
+      stale: '{{ not is_number(states(''sensor.bsb_lan_00_36_diagnostics_producer_8314_return_temp_actual_value'')) or state_attr(''sensor.bsb_lan_00_36_diagnostics_producer_8314_return_temp_actual_value'',
+        ''unit_of_measurement'') != ''°C'' or as_timestamp(now()) - (state_attr(''sensor.bsb_heat_return_readback'', ''received_at'')
+        | float(0)) > 180 or as_timestamp(now()) - (state_attr(''sensor.bsb_heat_error_readback'', ''received_at'') | float(0))
+        > 180 or as_timestamp(now()) - (state_attr(''sensor.bsb_heat_contact_readback'', ''received_at'') | float(0)) > 180
+        }}'
+      boiler_fault: '{{ states(''sensor.bsb_lan_00_31_error_6700_error_signal'').split('' - '')[0] != ''0'' }}'
+      deadline_passed: '{{ as_timestamp(now()) >= as_timestamp(states(''input_datetime.bsb_manual_heat_deadline''), 0) }}'
+      external_change: '{{ states(''select.bsb_lan_00_09_heating_circuit_1_700_operating_mode'') not in [''3 - Comfort'',
+        ''unknown'', ''unavailable''] or (states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') not in [''unknown'',
+        ''unavailable''] and states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') != states(''input_text.bsb_cycle_h5''))
+        or states(''select.bsb_lan_00_29_configuration_5977_input_h5_function_selection'') != ''18 - Room thermostat HC1''
+        or states(''input_boolean.bsb_thermostat_override'') != states(''input_boolean.bsb_cycle_override'') or (is_number(states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc''))
+        and (states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc'') | float - states(''input_number.bsb_cycle_flow_target'')
+        | float) | abs >= 0.11) }}'
+  - choose:
+    - conditions: '{{ trigger.id == ''restart'' or states(''input_text.bsb_manual_heat_status'').startswith((''Stopping:'',
+        ''Stop not'', ''Start protection'', ''Thermostat restore'', ''Flow setting restore'', ''Restoration feedback'')) }}'
+      sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.bsb_calendar_enabled
+      - action: script.bsb_heat_control
+        data:
+          operation: stop
+          reason: Recovery after restart or failed acknowledgement
+    default:
+    - choose:
+      - conditions: '{{ external_change }}'
+        sequence:
+        - action: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.bsb_calendar_enabled
+        - action: script.bsb_heat_control
+          data:
+            operation: stop
+            reason: Settings changed outside cycle
+            preserve_mode: '{{ current_mode not in [''3 - Comfort'', ''unknown'', ''unavailable''] }}'
+      default:
+      - choose:
+        - conditions: '{{ stale or deadline_passed or cutoff < 30 or cutoff > 55 or boiler_fault }}'
+          sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.bsb_calendar_enabled
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.bsb_heat_fault
+          - action: script.bsb_heat_control
+            data:
+              operation: stop
+              reason: '{{ ''Feedback lost'' if stale else (''Boiler error'' if boiler_fault else (''Maximum run time reached''
+                if deadline_passed else ''Invalid cutoff'')) }}'
+        default:
+        - choose:
+          - conditions: '{{ states(''sensor.bsb_lan_00_36_diagnostics_producer_8314_return_temp_actual_value'') | float(0)
+              >= cutoff }}'
+            sequence:
+            - action: script.bsb_heat_control
+              data:
+                operation: stop
+                reason: Return-water target reached
+  - choose:
+    - conditions: '{{ is_state(''input_boolean.bsb_manual_heat_active'', ''on'') and is_state(''input_boolean.bsb_thermostat_override'',
+        ''on'') and is_state(''input_boolean.bsb_heat_fault'', ''off'') and states(''sensor.bsb_lan_00_33_io_test_7865_contact_state_h5'')
+        in [''0'', ''1''] and states(''select.bsb_lan_00_29_configuration_5978_type_of_contact_h5'') == states(''input_text.bsb_cycle_h5'')
+        and states(''input_text.bsb_cycle_h5'') != (''0 - normal closed'' if states(''sensor.bsb_lan_00_33_io_test_7865_contact_state_h5'')
+        == ''0'' else ''1 - normal opened'') }}'
+      sequence:
+      - action: script.bsb_heat_control
+        data:
+          operation: refresh_request
+- id: bsb_calendar_water_heating
+  alias: BSB heating calendar 50/40 return targets
+  mode: single
+  triggers:
+  - trigger: time_pattern
+    minutes: /1
+  - trigger: calendar
+    entity_id: calendar.heating
+    event: start
+  - trigger: calendar
+    entity_id: calendar.heating
+    event: end
+  - trigger: state
+    entity_id:
+    - input_boolean.bsb_calendar_enabled
+    - input_number.bsb_calendar_hot_target
+    - input_number.bsb_calendar_cool_target
+  - trigger: homeassistant
+    event: start
+  actions:
+  - variables:
+      calendar_result: {}
+  - action: calendar.get_events
+    response_variable: calendar_result
+    continue_on_error: true
+    target:
+      entity_id: calendar.heating
+    data:
+      start_date_time: '{{ (now() - timedelta(days=1)).isoformat() }}'
+      end_date_time: '{{ (now() + timedelta(days=1)).isoformat() }}'
+  - choose:
+    - conditions: '{{ ''calendar.heating'' not in calendar_result or states(''calendar.heating'') not in [''on'', ''off'']
+        }}'
+      sequence:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.bsb_calendar_status
+        data:
+          value: Calendar unavailable; heating schedule paused
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.bsb_calendar_enabled
+      - choose:
+        - conditions: '{{ is_state(''input_boolean.bsb_manual_heat_active'', ''on'') and states(''input_text.bsb_heat_owner'')
+            == ''calendar'' }}'
+          sequence:
+          - action: script.bsb_heat_control
+            data:
+              operation: stop
+              reason: Calendar unavailable
+      - stop: Calendar feedback required
+  - variables:
+      window_active: '{%- set ns = namespace(active=false) -%}{%- for event in calendar_result[''calendar.heating''][''events'']
+        -%}{%- if as_timestamp(event.start, 0) <= as_timestamp(now()) < as_timestamp(event.end, 0) -%}{%- set ns.active =
+        true -%}{%- endif -%}{%- endfor -%}{{ ns.active }}'
+  - choose:
+    - conditions: '{{ window_active }}'
+      sequence:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.bsb_calendar_window_active
+    default:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.bsb_calendar_window_active
+  - variables:
+      calendar_target: '{{ states(''input_number.bsb_calendar_hot_target'' if window_active else ''input_number.bsb_calendar_cool_target'')
+        | float(0) }}'
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.bsb_calendar_status
+    data:
+      value: '{{ (''Enabled: '' if is_state(''input_boolean.bsb_calendar_enabled'', ''on'') else ''Paused: '') ~ (''event''
+        if window_active else ''between events'') ~ '' target '' ~ calendar_target ~ '' °C return'' }}'
+  - choose:
+    - conditions: '{{ not is_state(''input_boolean.bsb_calendar_enabled'', ''on'') }}'
+      sequence:
+      - choose:
+        - conditions: '{{ is_state(''input_boolean.bsb_manual_heat_active'', ''on'') and states(''input_text.bsb_heat_owner'')
+            == ''calendar'' }}'
+          sequence:
+          - action: script.bsb_heat_control
+            data:
+              operation: stop
+              reason: Calendar paused
+      - stop: Calendar is paused
+  - choose:
+    - conditions: '{{ is_state(''input_boolean.bsb_heat_fault'', ''on'') }}'
+      sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.bsb_calendar_enabled
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.bsb_calendar_status
+        data:
+          value: 'Paused: cycle fault; check boiler and clear the cycle fault'
+      - stop: Fault must be checked before enabling the calendar
+  - choose:
+    - conditions: '{{ is_state(''input_boolean.bsb_manual_heat_active'', ''on'') }}'
+      sequence:
+      - choose:
+        - conditions: '{{ states(''input_text.bsb_heat_owner'') == ''calendar'' and (states(''input_number.bsb_cycle_return_target'')
+            | float(0) - calendar_target) | abs > 0.1 }}'
+          sequence:
+          - action: script.bsb_heat_control
+            data:
+              operation: stop
+              reason: Calendar target changed
+      - stop: An existing cycle owns circuit 1
+  - condition: state
+    entity_id: script.bsb_heat_control
+    state: 'off'
+  - condition: state
+    entity_id: input_boolean.bsb_heat_fault
+    state: 'off'
+  - condition: template
+    value_template: '{{ is_number(states(''sensor.bsb_lan_00_36_diagnostics_producer_8314_return_temp_actual_value'')) and
+      states(''sensor.bsb_lan_00_36_diagnostics_producer_8314_return_temp_actual_value'') | float < calendar_target - states(''input_number.bsb_calendar_hysteresis'')
+      | float(2) and as_timestamp(now()) >= as_timestamp(states(''input_datetime.bsb_heat_next_start''), 0) }}'
+  - action: script.bsb_heat_control
+    data:
+      operation: start
+      source: calendar
+      target: '{{ calendar_target }}'
+template:
+- sensor:
+  - name: Heating calendar return target
+    unique_id: bsb_calendar_return_target
+    unit_of_measurement: °C
+    device_class: temperature
+    state: '{{ states(''input_number.bsb_calendar_hot_target'' if is_state(''input_boolean.bsb_calendar_window_active'', ''on'')
+      else ''input_number.bsb_calendar_cool_target'') }}'
+    availability: '{{ states(''calendar.heating'') in [''on'', ''off''] }}'
+  - name: BSB heating state
+    unique_id: bsb_heating_state
+    state: '{% set value = states(''sensor.bsb_lan_00_34_status_8000_status_heating_circuit_1'') %}{{ {''122'': ''Room limited'',
+      ''114'': ''Comfort'', ''121'': ''Frost protect'', ''17'': ''Overrun''}.get(value.split('' - '')[0], value.split('' -
+      '', 1)[-1]) }}'
+    availability: '{{ states(''sensor.bsb_lan_00_34_status_8000_status_heating_circuit_1'') not in [''unknown'', ''unavailable'']
+      }}'
+  - name: BSB dhw state
+    unique_id: bsb_dhw_state
+    state: '{% set value = states(''sensor.bsb_lan_00_34_status_8003_status_dhw'') %}{{ {''99'': ''Charged''}.get(value.split(''
+      - '')[0], value.split('' - '', 1)[-1]) }}'
+    availability: '{{ states(''sensor.bsb_lan_00_34_status_8003_status_dhw'') not in [''unknown'', ''unavailable''] }}'
+  - name: BSB boiler state
+    unique_id: bsb_boiler_state
+    state: '{% set value = states(''sensor.bsb_lan_00_34_status_8005_status_boiler'') %}{{ {''25'': ''Off'', ''17'': ''Overrun'',
+      ''166'': ''Heating'', ''167'': ''Heating'', ''169'': ''Hot water''}.get(value.split('' - '')[0], value.split('' - '',
+      1)[-1]) }}'
+    availability: '{{ states(''sensor.bsb_lan_00_34_status_8005_status_boiler'') not in [''unknown'', ''unavailable''] }}'
+  - name: BSB h5 contact
+    unique_id: bsb_h5_contact
+    state: '{% set value = states(''sensor.bsb_lan_00_33_io_test_7865_contact_state_h5'') %}{{ {''0'': ''Open'', ''1'': ''Closed''}.get(value.split(''
+      - '')[0], value.split('' - '', 1)[-1]) }}'
+    availability: '{{ states(''sensor.bsb_lan_00_33_io_test_7865_contact_state_h5'') not in [''unknown'', ''unavailable'']
+      }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/9/700/status
+  sensor:
+  - name: BSB heat mode readback
+    unique_id: bsb_heat_mode_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/29/5978/status
+  sensor:
+  - name: BSB heat h5 readback
+    unique_id: bsb_heat_h5_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/9/742/status
+  sensor:
+  - name: BSB heat flow readback
+    unique_id: bsb_heat_flow_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/36/8314/status
+  sensor:
+  - name: BSB heat return readback
+    unique_id: bsb_heat_return_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/29/5977/status
+  sensor:
+  - name: BSB heat role readback
+    unique_id: bsb_heat_role_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/33/7865/status
+  sensor:
+  - name: BSB heat contact readback
+    unique_id: bsb_heat_contact_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/31/6700/status
+  sensor:
+  - name: BSB heat error readback
+    unique_id: bsb_heat_error_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'

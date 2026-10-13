@@ -1,0 +1,599 @@
+{
+  "title": "Heating",
+  "views": [
+    {
+      "title": "Heating",
+      "path": "heating",
+      "type": "sections",
+      "max_columns": 3,
+      "sections": [
+        {
+          "type": "grid",
+          "column_span": 2,
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "Heating overview",
+              "icon": "mdi:home-thermometer",
+              "grid_options": {
+                "columns": "full",
+                "rows": 1
+              }
+            },
+            {
+              "type": "markdown",
+              "content": "**Heating water · Hot water · Room heating · Boiler**",
+              "grid_options": {
+                "columns": "full",
+                "rows": 1
+              }
+            },
+            {
+              "type": "heading",
+              "heading": "State",
+              "heading_style": "subtitle",
+              "grid_options": {
+                "columns": "full",
+                "rows": 1
+              }
+            },
+            {
+              "type": "grid",
+              "columns": 4,
+              "square": false,
+              "cards": [
+                {
+                  "type": "button",
+                  "entity": "input_boolean.bsb_manual_heat_active",
+                  "name": "Cycle",
+                  "icon": "mdi:water-sync",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "entity": "sensor.bsb_dhw_state",
+                  "name": "DHW",
+                  "icon": "mdi:water-boiler",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "entity": "sensor.bsb_heating_state",
+                  "name": "Room",
+                  "icon": "mdi:radiator",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "entity": "sensor.bsb_boiler_state",
+                  "name": "Boiler",
+                  "icon": "mdi:fire",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                }
+              ],
+              "grid_options": {
+                "columns": "full"
+              }
+            },
+            {
+              "type": "heading",
+              "heading": "Readings",
+              "heading_style": "subtitle",
+              "grid_options": {
+                "columns": "full",
+                "rows": 1
+              }
+            },
+            {
+              "type": "grid",
+              "columns": 4,
+              "square": false,
+              "cards": [
+                {
+                  "type": "button",
+                  "entity": "sensor.bsb_lan_00_36_diagnostics_producer_8314_return_temp_actual_value",
+                  "name": "Return",
+                  "icon": "mdi:thermometer-water",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "entity": "sensor.bsb_lan_00_37_diagnostics_consumer_8830_dhw_temperature_actual_value_top_b3",
+                  "name": "DHW",
+                  "icon": "mdi:water-thermometer",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "entity": "sensor.bsb_lan_00_37_diagnostics_consumer_8740_room_temperature_actual_value_1",
+                  "name": "Room",
+                  "icon": "mdi:home-thermometer",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "entity": "sensor.bsb_lan_00_36_diagnostics_producer_8310_boiler_temp_actual_value",
+                  "name": "Boiler",
+                  "icon": "mdi:water-boiler",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                }
+              ],
+              "grid_options": {
+                "columns": "full"
+              }
+            },
+            {
+              "type": "heading",
+              "heading": "Targets",
+              "heading_style": "subtitle",
+              "grid_options": {
+                "columns": "full",
+                "rows": 1
+              }
+            },
+            {
+              "type": "grid",
+              "columns": 4,
+              "square": false,
+              "cards": [
+                {
+                  "type": "button",
+                  "entity": "sensor.heating_calendar_return_target",
+                  "name": "Return",
+                  "icon": "mdi:calendar-clock",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "entity": "text.bsb_lan_00_13_dhw_1610_dhw_temperature_nominal_setpoint_degc",
+                  "name": "DHW °C",
+                  "icon": "mdi:water-thermometer-outline",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "entity": "text.bsb_lan_00_09_heating_circuit_1_710_comfort_setpoint_degc",
+                  "name": "Room °C",
+                  "icon": "mdi:home-thermometer-outline",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "entity": "sensor.bsb_lan_00_36_diagnostics_producer_8311_boiler_temp_setpoint",
+                  "name": "Boiler",
+                  "icon": "mdi:thermometer-chevron-up",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                }
+              ],
+              "grid_options": {
+                "columns": "full"
+              }
+            },
+            {
+              "type": "heading",
+              "heading": "More",
+              "heading_style": "subtitle",
+              "grid_options": {
+                "columns": "full",
+                "rows": 1
+              }
+            },
+            {
+              "type": "grid",
+              "columns": 4,
+              "square": false,
+              "cards": [
+                {
+                  "type": "button",
+                  "entity": "input_number.bsb_return_stop_temperature",
+                  "name": "Cutoff",
+                  "icon": "mdi:thermometer-check",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "entity": "select.bsb_lan_00_13_dhw_1600_operating_mode",
+                  "name": "DHW mode",
+                  "icon": "mdi:water-boiler-auto",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "entity": "sensor.bsb_h5_contact",
+                  "name": "H5",
+                  "icon": "mdi:thermostat",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "entity": "sensor.estimated_gas_today",
+                  "name": "Gas",
+                  "icon": "mdi:fire",
+                  "show_state": true,
+                  "icon_height": "42px",
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                }
+              ],
+              "grid_options": {
+                "columns": "full"
+              }
+            },
+            {
+              "type": "markdown",
+              "content": "Return water is the boiler inlet, **not the whole 500 L hybrid tank**. Room and buffer readings remain unknown where no sensor is reported.",
+              "grid_options": {
+                "columns": "full"
+              }
+            }
+          ]
+        },
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "Heating calendar",
+              "icon": "mdi:calendar-clock"
+            },
+            {
+              "type": "entities",
+              "show_header_toggle": false,
+              "entities": [
+                {
+                  "entity": "input_boolean.bsb_calendar_enabled",
+                  "name": "Enable calendar heating"
+                },
+                {
+                  "entity": "input_number.bsb_calendar_hot_target",
+                  "name": "During events · return target"
+                },
+                {
+                  "entity": "input_number.bsb_calendar_cool_target",
+                  "name": "Between events · return target"
+                },
+                {
+                  "entity": "input_number.bsb_calendar_hysteresis",
+                  "name": "Restart below target by"
+                },
+                {
+                  "entity": "input_boolean.bsb_thermostat_override",
+                  "name": "Ignore room thermostat during cycle"
+                },
+                {
+                  "entity": "input_number.bsb_heat_flow_ceiling",
+                  "name": "Maximum requested HC1 flow"
+                }
+              ]
+            },
+            {
+              "type": "markdown",
+              "content": "{{ states('input_text.bsb_calendar_status') }}\n\n**Events = 50°C return; gaps = 40°C return.** Adjustable above. Starts below target by 2°C, with at least 10 minutes between cycles. The cycle requests a flow setting 5°C above its return target and restores the original contact interpretation and flow setting afterward.\n\n[Add or edit heating periods](/calendar) · Schedule pauses after a server restart."
+            },
+            {
+              "type": "calendar",
+              "entities": [
+                "calendar.heating"
+              ],
+              "initial_view": "listWeek"
+            }
+          ]
+        },
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "Heating · Circuit 1",
+              "icon": "mdi:radiator"
+            },
+            {
+              "type": "button",
+              "name": "Start heating",
+              "icon": "mdi:radiator",
+              "entity": "script.bsb_manual_heat_start",
+              "show_state": false,
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "script.bsb_manual_heat_start"
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "double_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "button",
+              "name": "Stop cycle",
+              "icon": "mdi:stop-circle-outline",
+              "entity": "script.bsb_manual_heat_stop",
+              "show_state": false,
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "script.bsb_manual_heat_stop"
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "double_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "markdown",
+              "content": "**Cycle status**\n\n{{ states('input_text.bsb_manual_heat_status') }}"
+            },
+            {
+              "type": "entities",
+              "show_header_toggle": false,
+              "entities": [
+                {
+                  "entity": "input_number.bsb_return_stop_temperature",
+                  "name": "Stop at return water"
+                },
+                {
+                  "entity": "input_number.bsb_manual_heat_max_minutes",
+                  "name": "Maximum duration"
+                },
+                {
+                  "entity": "input_number.bsb_cycle_return_target",
+                  "name": "Active cycle cutoff"
+                },
+                {
+                  "entity": "input_boolean.bsb_heat_fault",
+                  "name": "Cycle fault · clear after checking boiler"
+                },
+                {
+                  "entity": "select.bsb_lan_00_09_heating_circuit_1_700_operating_mode",
+                  "name": "Operating mode"
+                },
+                {
+                  "entity": "text.bsb_lan_00_09_heating_circuit_1_710_comfort_setpoint_degc",
+                  "name": "Comfort target (°C)"
+                },
+                {
+                  "entity": "text.bsb_lan_00_09_heating_circuit_1_712_room_temp_reduced_setpoint_degc",
+                  "name": "Reduced target (°C)"
+                },
+                {
+                  "entity": "sensor.bsb_lan_00_37_diagnostics_consumer_8749_room_thermostat_heating_circuit_1",
+                  "name": "Thermostat request"
+                },
+                {
+                  "entity": "sensor.bsb_lan_00_34_status_8000_status_heating_circuit_1",
+                  "name": "Heating status"
+                }
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bsb_lan_00_31_error_6700_error_signal",
+              "name": "Boiler error",
+              "icon": "mdi:alert-circle-outline",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "more-info"
+              }
+            },
+            {
+              "type": "markdown",
+              "content": "Start pauses the calendar and runs a single circuit-1 water cycle. With override enabled, the thermostat contact is still monitored; its interpretation temporarily maintains a heat request. Its thermostat role remains configured. Stop restores owned settings and ends circuit 1 in **Protection mode**.\n\nA boiler error, lost feedback or the maximum duration stops the cycle and pauses the schedule. The return-water cutoff requires Home Assistant and its connection. DHW runs independently."
+            }
+          ]
+        },
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "Boiler & hot water",
+              "icon": "mdi:water-boiler"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bsb_lan_00_34_status_8005_status_boiler",
+              "name": "Boiler status",
+              "icon": "mdi:fire",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "more-info"
+              },
+              "grid_options": {
+                "columns": 12,
+                "rows": 1
+              }
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bsb_lan_00_36_diagnostics_producer_8310_boiler_temp_actual_value",
+              "name": "Boiler water",
+              "icon": "mdi:thermometer",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "more-info"
+              }
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bsb_lan_00_36_diagnostics_producer_8314_return_temp_actual_value",
+              "name": "Return water",
+              "icon": "mdi:thermometer",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "more-info"
+              }
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bsb_lan_00_37_diagnostics_consumer_8830_dhw_temperature_actual_value_top_b3",
+              "name": "Hot water",
+              "icon": "mdi:water-thermometer",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "more-info"
+              }
+            },
+            {
+              "type": "entities",
+              "show_header_toggle": false,
+              "entities": [
+                {
+                  "entity": "select.bsb_lan_00_13_dhw_1600_operating_mode",
+                  "name": "Hot-water mode"
+                },
+                {
+                  "entity": "text.bsb_lan_00_13_dhw_1610_dhw_temperature_nominal_setpoint_degc",
+                  "name": "Hot-water target (°C)"
+                }
+              ]
+            },
+            {
+              "type": "history-graph",
+              "title": "Water temperatures · 24 hours",
+              "hours_to_show": 24,
+              "entities": [
+                {
+                  "entity": "sensor.bsb_lan_00_36_diagnostics_producer_8310_boiler_temp_actual_value",
+                  "name": "Boiler"
+                },
+                {
+                  "entity": "sensor.bsb_lan_00_37_diagnostics_consumer_8830_dhw_temperature_actual_value_top_b3",
+                  "name": "Hot water"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
