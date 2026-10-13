@@ -1,8 +1,8 @@
 # Refined UI
 
-Presentation-only customisation of BSB-LAN: embedded light-theme interface, responsive navigation, read-only overview, searchable parameter pages and settings accessibility improvements.
+Interface and SD storage customisation of BSB-LAN: embedded light-theme interface, responsive navigation, read-only overview, searchable parameter pages and settings accessibility improvements.
 
-The main firmware, bus driver, parameter decoder, device-specific table and write-protection configuration are unchanged. No new write endpoint is added. Settings retain upstream behaviour and authentication. The overview uses existing `/JI` and `/JQ` APIs and requests only parameter definitions present in the active table.
+The bus driver, parameter decoder, device-specific table and boiler write-protection configuration are unchanged. The main firmware has eight added lines for an authenticated SD route and POST body length; storage operations live in a separate board-specific header. No boiler write endpoint is added. Settings retain upstream behaviour and authentication. The overview uses existing `/JI` and `/JQ` APIs and requests only parameter definitions present in the active table.
 
 Automatic refreshing is off initially, runs 30 seconds after completion when enabled, pauses in hidden tabs and stops after three failed attempts. Network operations run sequentially with a 60-second request timeout. Missing definitions, failed queries, disabled values, valid zero and stale readings have separate presentations.
 
@@ -21,6 +21,10 @@ The optional loopback preview uses **labelled sample data** and never connects t
 python ui/preview_server.py
 ```
 
-Preview paths: `/` for available readings, `/basic/` for missing definitions, `/offline/` for network failure, `/C` for settings and `/K` for category filtering. Device configuration writes and parameter downloads are not simulated. Browser validation covers these UI states; actual device and bus checks must also be performed after flashing.
+Preview paths: `/` for available readings, `/basic/` for missing definitions, `/offline/` for network failure, `/C` for settings and `/K` for category filtering, `/SD` for storage management. Device configuration writes and parameter downloads are not simulated. Browser validation covers these UI states; actual device and bus checks must also be performed after flashing.
 
 Upstream attribution and licence remain in the root README. This is a custom UI branch, not an official BSB-LAN release.
+
+SD management is exposed at /SD on ESP32-POE-ISO. Supports status/capacity, mount without formatting, unmount, root-file downloads and confirmed deletion, and confirmed full-card format using public ESP-IDF APIs. Formatting requires a mounted FAT card; corrupted/unformatted cards need a computer/card reader. Stop SD logging, averages, telegram logging and SD web serving first. No internal flash operations. Downloads limited to 1 MiB. Preview never performs storage actions. Format hardware validation requires a disposable test card and is not performed on user data.
+
+Storage management shares the existing SD_MMC object and upstream logging files. Configure logging uses the existing Settings endpoint; no new boiler message decoding or automatic parameter writes. Storage audit rotates at 256 KiB to one previous file, records boot identifier, uptime, action, validated filename and result, and excludes credentials. Format erases previous audit history; the successful format creates a new entry. An unavailable card cannot retain an audit entry.

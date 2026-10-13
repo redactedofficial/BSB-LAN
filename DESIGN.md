@@ -69,3 +69,5 @@ The image concept uses sample values solely to define typography and layout. Pro
 - Do preserve existing endpoints, authorization, raw downloads and read-only flags.
 - Don't query missing parameter definitions or introduce overlapping polls.
 - Don't infer physical sensors, heating circuits, writable parameters or operational values from menu presence.
+
+Storage management shares the existing SD_MMC object and upstream logging files. Configure logging uses the existing Settings endpoint; no new boiler message decoding or automatic parameter writes. Storage audit rotates at 256 KiB to one previous file, records boot identifier, uptime, action, validated filename and result, and excludes credentials. Format erases previous audit history; the successful format creates a new entry. An unavailable card cannot retain an audit entry.

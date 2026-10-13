@@ -33,6 +33,9 @@ void webPrintHeader(void) {
   printFmtToWebClient("K%d'>", CAT_USERSENSORS);
   printToWebClient(STR_TEXT_SNS);
   printToWebClient("</a>");
+  #if defined(ARDUINO_ESP32_POE_ISO)
+  printToWebClient("<a href='/"); printPassKey(); printToWebClient("SD'>SD card</a>");
+  #endif
   if (LoggingMode & CF_LOGMODE_SD_CARD) {
     printToWebClient("<a href='/");
     printPassKey();

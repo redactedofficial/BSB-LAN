@@ -6,8 +6,15 @@ const char console_style[] = R"BSBUI(<style>:root{--bg:#eef3f8;--surface:#fff;--
 @media(max-width:640px){.site-header{padding:12px 16px}.header-inner{gap:12px}.site-nav{flex-basis:100%;order:3;gap:0}.site-header .mode-status{margin-left:auto;font-size:12px}.nav-tools{gap:0}.site-nav a{padding:8px;font-size:13px}main{padding:24px 16px 12px}h1{font-size:30px}.subtitle{font-size:16px}.refreshbar{gap:12px;padding:12px}.temperature-strip{grid-template-columns:repeat(2,1fr);row-gap:22px;margin:16px 0 28px}.temperature{padding:0 12px}.temperature:nth-child(2){border:0}.temperature:nth-child(3){padding-left:4px}.temperature .reading-name{font-size:13px}.temperature .reading-value{font-size:28px}.temperature svg{width:24px}.section-heading{align-items:flex-start;flex-direction:column;gap:12px}.search-wrap{max-width:none}th,td{padding:12px;font-size:14px}.table-region table{min-width:530px}.legacy-page>tbody>tr>td{padding:16px}.settings-table,.settings-table tbody,.settings-table tr,.settings-table td{display:block!important;width:100%!important}.settings-table tr{padding:12px 0;border-bottom:1px solid var(--line)}.settings-table td{border:0;padding:3px 0!important}.site-footer{padding:18px 16px}.legacy-page{overflow-wrap:anywhere}.legacy-page table:not(.settings-table){display:block;overflow:auto}.refreshbar .last-update{flex:1}.temperature .reading-note{min-height:18px}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}button:active{transform:none}}
 @media(forced-colors:active){html{scrollbar-color:auto}.connection::before{background:CanvasText}.mode-status{border:1px solid CanvasText}}
+
+.card-files { overflow-x: auto; margin-top: 24px; }
+.card-files table { width: 100%; }
+button.danger { color: #a32929; border-color: #b95b5b; }
+dialog { max-width: min(480px, calc(100vw - 48px)); border: 1px solid var(--line); border-radius: 12px; padding: 24px; color: #142b43; }
+dialog::backdrop { background: rgba(20,43,67,.45); }
+dialog input { display:block; margin: 12px 0 20px; width: 100%; box-sizing:border-box; }
 </style>)BSBUI";
-const char console_script[] = R"BSBUI(<script>/* Presentation only: no SET, INF, configuration writes, bus mode changes or decoding. */
+const char console_script[] = R"BSBUI(<script>/* Heating presentation and isolated SD actions: no boiler SET/INF, bus mode changes or decoding. */
 (() => {
   'use strict';
   const selected = [
@@ -54,8 +61,87 @@ const char console_script[] = R"BSBUI(<script>/* Presentation only: no SET, INF,
     document.title = labels[0] + ' · BSB-LAN';
     document.querySelectorAll('.site-nav a').forEach(a => { const target=new URL(a.href); if (target.origin === location.origin && target.pathname === location.pathname) a.setAttribute('aria-current','page'); });
     if (route === '') dashboard(base);
+    else if (route === 'SD') storage(base);
     else enhanceLegacy(labels[1], route);
   });
+  function storage(base) {
+    document.title = 'SD card · BSB-LAN';
+    const main = $('app-main'); main.replaceChildren();
+    const title = node('h1','SD card');
+    const intro = node('p','Manage removable storage. Stop SD logging before changing files or removing the card.','subtitle');
+    const notice = node('p','Reading card status…','connection'); notice.setAttribute('role','status');
+    const summary = node('p');
+    const logging = node('p'); const settings = node('a','Configure logging'); settings.href=new URL('C',base);
+    const tools = node('div',undefined,'refreshbar');
+    const refresh = node('button','Refresh status'), mount = node('button','Mount card'), unmount = node('button','Safely unmount'), format = node('button','Format card');
+    format.className = 'danger'; tools.append(refresh,mount,unmount,format);
+    const files = node('div',undefined,'card-files');
+    const foot = node('p','Lists up to 100 files in the card root with simple filenames. Downloads up to 1 MiB; use a card reader for larger files and folders. Formatting erases the entire card.','subtitle');
+    main.append(title,intro,notice,summary,logging,settings,tools,files,foot);
+    let status, busy = false, controller;
+    const buttons = () => {
+      refresh.disabled = busy;
+      const locked = busy || !status || status.busy || !status.selected || !status.authorized;
+      mount.disabled = locked || status.mounted; unmount.disabled = format.disabled = locked || !status.mounted;
+      files.querySelectorAll('[data-delete]').forEach(b => b.disabled = locked || b.dataset.protected === 'true');
+    };
+    const bytes = n => Number(n) < 1048576 ? (Number(n)/1024).toLocaleString(undefined,{maximumFractionDigits:1})+' KiB' : (Number(n)/1048576).toLocaleString(undefined,{maximumFractionDigits:1})+' MiB';
+    async function request(path, options = {}) {
+      controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 90000);
+      try {
+        const response = await fetch(new URL('SD/'+path,base),{...options,signal:controller.signal,cache:'no-store',credentials:'same-origin'});
+        const data = await response.json();
+        if (!response.ok || data.error) throw new Error(data.error || 'Storage request failed.');
+        return data;
+      } finally { clearTimeout(timer); }
+    }
+    function render() {
+      summary.textContent = status.mounted ? `${bytes(status.used)} used of ${bytes(status.total)} · ${bytes(Math.max(0,status.total-status.used))} free` : 'No mounted card. Insert a FAT-formatted card, then choose Mount card.';
+      notice.textContent = status.busy ? 'Storage is in use. Stop SD logging, averages and telegram logging, and disable SD web serving before making changes.' : !status.selected ? 'Select SD card as the storage device in Settings before making changes.' : !status.authorized ? 'Configure web authentication before making changes.' : status.mounted ? 'Card mounted' : 'Card not mounted';
+      logging.textContent = `Heating data logging: ${status.logging ? 'on' : 'off'} · interval ${status.interval ?? '—'} seconds. Storage actions are recorded in storage-audit.jsonl (two files, 256 KiB each).`;
+      files.replaceChildren();
+      if (!status.mounted) return;
+      if (!status.files.length) { files.append(node('p','No manageable files in the card root.')); return; }
+      const table = node('table'); const head = node('thead'), row = node('tr');
+      ['File','Size','Actions'].forEach(label => { const h=node('th',label); h.scope='col'; row.append(h); }); head.append(row); table.append(head);
+      const body = node('tbody');
+      status.files.forEach(file => {
+        const row=node('tr'), actions=node('td'), link=node('a','Download'), remove=node('button','Delete');
+        link.href = new URL('SD/download/'+encodeURIComponent(file.name),base); link.download=file.name;
+        remove.dataset.delete=''; remove.dataset.protected=String(!!file.protected); remove.title=file.protected ? 'Managed index or averages file; cannot be deleted separately.' : '';  remove.className='danger'; remove.addEventListener('click',()=>confirmAction('delete',file.name));
+        actions.append(link,document.createTextNode(' '),remove); row.append(node('td',file.name),node('td',bytes(file.size)),actions); body.append(row);
+      }); table.append(body); files.append(table);
+      if (status.truncated) files.append(node('p','Showing the first 100 manageable files. Use a card reader for the full list.'));
+    }
+    async function load() {
+      if (busy) return; busy=true; buttons(); notice.textContent='Reading card status…';
+      try { status=await request('status'); render(); }
+      catch(error) { status=undefined; notice.textContent='Unable to read card status. '+error.message; }
+      finally { busy=false; buttons(); }
+    }
+    async function act(action,name='',confirmation='') {
+      if (busy) return; busy=true; buttons(); notice.textContent=action === 'format' ? 'Formatting card… Keep power connected.' : 'Updating card…';
+      let outcome;
+      try { const result = await request('action',{method:'POST',headers:{'Content-Type':'text/plain'},body:[status.token,action,name,confirmation].join('\n')}); outcome= action === 'format' ? 'Card formatted successfully.' : 'Storage updated.'; if (result.audited === false) outcome += ' Audit entry could not be saved.'; }
+      catch(error) { outcome=error.name === 'AbortError' ? 'Request timed out. The operation may still be running; refresh status before trying again.' : error.message; }
+      finally { busy=false; await load(); notice.textContent=outcome+' '+notice.textContent; }
+    }
+    function confirmAction(action,name='') {
+      const previous=document.activeElement, dialog=node('dialog'), heading=node('h2',action==='format'?'Format this SD card?':'Delete this file?');
+      const description=node('p',action==='format'?'All files and folders on the removable card will be erased. Download anything you need first. This cannot be undone.':`Remove the contents of “${name}” permanently? Heating data logs are recreated with a fresh header and index.`);
+      const label=node('label','Type FORMAT to confirm'), input=node('input'); input.autocomplete='off'; label.append(input);
+      const cancel=node('button','Cancel'), confirm=node('button',action==='format'?'Erase and format':'Delete file'); confirm.className='danger';
+      heading.id='storage-confirm-title'; dialog.setAttribute('aria-labelledby',heading.id); dialog.append(heading,description);
+      if(action==='format') { dialog.append(label); confirm.disabled=true; input.addEventListener('input',()=>confirm.disabled=input.value !== 'FORMAT'); }
+      const controls=node('div',undefined,'refreshbar'); controls.append(cancel,confirm); dialog.append(controls); document.body.append(dialog);
+      cancel.addEventListener('click',()=>dialog.close());
+      confirm.addEventListener('click',()=>{ dialog.close(); act(action,name,action==='format'?'FORMAT':'DELETE'); });
+      dialog.addEventListener('close',()=>{ dialog.remove(); previous?.focus(); },{once:true});
+      dialog.showModal(); cancel.focus();
+    }
+    refresh.addEventListener('click',load); mount.addEventListener('click',()=>act('mount')); unmount.addEventListener('click',()=>act('unmount')); format.addEventListener('click',()=>confirmAction('format'));
+    window.addEventListener('pagehide',()=>controller?.abort(),{once:true}); buttons(); load();
+  }
   function dashboard(base) {
     const main = $('app-main');
     const legacy = main.querySelector('.legacy-page');

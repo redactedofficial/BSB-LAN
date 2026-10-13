@@ -22,7 +22,7 @@ Homeowner monitoring a local ESP32 boiler interface. English presentation, brows
 | Scrollbar | ui/console.css | DESIGN.md | global | Browser computed style |
 | Toast | Persistent shared notice in ui/console.js | Async response outcome | inline status | Failure tests |
 
-No Table Selection, date picker, CRUD or destructive workflow is introduced.
+Storage operations use an app-owned native dialog. Format requires typing FORMAT; deletion names the affected file. Cancel and Escape restore focus.
 
 ## State and navigation
 
@@ -34,4 +34,10 @@ One overview operation at a time; device status precedes reading requests. Only 
 
 ## Search and accessibility
 
-Search is local, immediate and composition-safe; clear returns focus to the input. Search is intentionally transient to avoid changing legacy firmware command URLs. Native table semantics, labels, focus rings, accessible notices and 640px responsive reflow. No alerts, confirmations or synthetic control actions. JS failure leaves the server-rendered interface usable.
+Search is local, immediate and composition-safe; clear returns focus to the input. Search is intentionally transient to avoid changing legacy firmware command URLs. Native table semantics, labels, focus rings, accessible notices and 640px responsive reflow. No browser alerts or synthetic control actions. JS failure leaves the server-rendered interface usable.
+
+## SD storage
+
+Olimex ESP32-POE-ISO only. The SD page inherits HTTP authentication and passkeys. Mutation requests are POST with a rotating nonce in the body, maximum 180 bytes and a bounded read timeout. Authentication must be configured. Server rejects mutations when storage is internal flash, SD logging/averages/telegram logging or SD web serving is active. Format requires an already mounted card and explicit FORMAT confirmation; no automatic format on mount failure. Only removable SD is accessed. File actions are limited to 100 root entries with validated ASCII filenames; no traversal or recursive deletion. Downloads are capped at 1 MiB/15 seconds. UI never claims a timed-out operation was cancelled. Real destructive actions are not exercised on a user's card during verification.
+
+Storage management shares the existing SD_MMC object and upstream logging files. Configure logging uses the existing Settings endpoint; no new boiler message decoding or automatic parameter writes. Storage audit rotates at 256 KiB to one previous file, records boot identifier, uptime, action, validated filename and result, and excludes credentials. Format erases previous audit history; the successful format creates a new entry. An unavailable card cannot retain an audit entry.

@@ -1836,6 +1836,7 @@ void printPStr(uint_farptr_t outstr, uint16_t outstr_len) {
 }
 
 #include "include/print_webpage.h"
+#include "include/storage_management.h"
 
 #if defined(ESP32)
 void init_ota_update(){
@@ -4718,6 +4719,8 @@ void loop() {
         // Parsing headers
         static int buffershift = 48;
         size_t charcount=buffershift;  //Reserve space in buffer for ETag (Max 32 chars)
+        const bool sdPost = !strncmp(cLineBuffer, "POST ", 5);
+        unsigned sdBodyLength = 0;
         uint8_t httpflags = 0; //bit 0 - authenticated: 0 - no, 1 - yes
                                //bit 1 - client browser accept gzip: 0 - no, 2 - yes
                                //bit 2 - HEAD request received from client: 0 - no, 4 - yes
@@ -4737,6 +4740,9 @@ void loop() {
             if (c == '\n') {
               // you're starting a new line
               currentLineIsBlank = true;
+              if (!strncasecmp(outBuf + buffershift, "Content-Length:", 15)) {
+                sdBodyLength = strtoul(outBuf + buffershift + 15, nullptr, 10);
+              }
               //Execute only if flag not set because strstr more expensive than bitwise operation
               if (!(httpflags & HTTP_GZIP) && strstr(outBuf + buffershift,"Accept-Encoding") != 0 && strstr(outBuf+16 + buffershift, "gzip") != 0) {
                 httpflags |= HTTP_GZIP;
@@ -4831,6 +4837,8 @@ void loop() {
           }
           *p='/';
         }
+
+        if (sdManagement(p, sdPost, sdBodyLength, isSerial)) break;
 
         if (webserver) {
           printToDebug("URL: ");
