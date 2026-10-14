@@ -342,7 +342,7 @@
           "cards": [
             {
               "type": "heading",
-              "heading": "DHW · Daily schedule",
+              "heading": "DHW · Schedule & top-ups",
               "icon": "mdi:water-boiler-auto"
             },
             {
@@ -354,8 +354,12 @@
                   "name": "Enable DHW calendar"
                 },
                 {
+                  "entity": "input_boolean.bsb_dhw_topup_enabled",
+                  "name": "Hourly five-minute top-ups"
+                },
+                {
                   "entity": "input_number.bsb_dhw_calendar_target",
-                  "name": "Scheduled DHW target"
+                  "name": "Hot-water target"
                 },
                 {
                   "entity": "sensor.bsb_lan_00_37_diagnostics_consumer_8830_dhw_temperature_actual_value_top_b3",
@@ -369,7 +373,7 @@
             },
             {
               "type": "markdown",
-              "content": "{{ states('input_text.bsb_dhw_calendar_status') }}\n\n**Every day · Hot water only · 45°C**\n\n- **06:00–07:30** · Preheat for 07:00.\n- **16:00–18:00** · Afternoon hot water.\n\nDHW is **Off outside events**. The boiler uses the measured DHW tank sensor and its own temperature control. The return-water cutoff belongs to room heating.\n\nPause before using manual DHW controls. This calendar resumes after a server restart; timed stops need Home Assistant and its connection.\n\n**Luna Platinum+: Eco mode is not used.** The calendar uses On/Off.\n\n[Edit DHW heating events](/calendar)"
+              "content": "{{ states('input_text.bsb_dhw_calendar_status') }}\n\n**Hourly top-ups**\n{% if not is_state('input_boolean.bsb_dhw_calendar_enabled', 'on') %}\nPaused with the DHW calendar.\n{% elif not is_state('input_boolean.bsb_dhw_topup_enabled', 'on') %}\nDisabled. Main charging periods still apply.\n{% else %}\n{{ states('input_text.bsb_dhw_topup_status') if states('input_text.bsb_dhw_topup_status') not in ['', 'unknown', 'unavailable'] else 'Waiting for the next full-hour check.' }}\n{% endif %}\n\nChecks at every full hour, including overnight. Outside main periods, starts only below **{{ (states('input_number.bsb_dhw_calendar_target') | float(45) - 2) | round(0) }}°C**. Stops at the target or after **five minutes**, then waits until the next hour. A missing temperature reading blocks the top-up. **Check top-up now** uses the same limit of one attempt per hour.\n\n**Daily main charging periods**\n- **06:00–07:30** · Preheat for 07:00.\n- **16:00–18:00** · Afternoon hot water.\n\nMain periods take priority. Outside them, DHW is Off except during an active top-up. The measured DHW sensor controls the target; the room-heating return cutoff is separate.\n\n**Pause & stop DHW** pauses both schedules and confirms Off before manual control. Restart cancels interrupted top-ups. Timed stops need Home Assistant and its connection; the boiler may continue room heating or pump overrun.\n\nThe heating buffer and stored tap water are different. Confirm the system's hot-water hygiene settings; a 45°C target alone does not provide Legionella control.\n\n**Luna Platinum+: Eco mode is not used.**\n[Edit DHW heating events](/calendar)"
             },
             {
               "type": "button",
@@ -380,6 +384,20 @@
               "tap_action": {
                 "action": "perform-action",
                 "perform_action": "script.bsb_dhw_calendar_stop"
+              },
+              "hold_action": {
+                "action": "none"
+              }
+            },
+            {
+              "type": "button",
+              "name": "Check top-up now",
+              "icon": "mdi:water-check",
+              "entity": "script.bsb_dhw_topup_check",
+              "show_state": false,
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "script.bsb_dhw_topup_check"
               },
               "hold_action": {
                 "action": "none"

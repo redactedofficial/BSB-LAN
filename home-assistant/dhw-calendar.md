@@ -27,9 +27,9 @@ heat. Overlapping events stay enabled until the last active event ends.
 ## Behavior
 
 During an event, the controller confirms release **24h/day** and the target,
-then selects **On**. Release 24h/day allows HA to own the timetable; it does not
-leave DHW running outside events. Between events it selects **Off**, rather than
-maintaining a lower reduced target. It does not change the native stored program
+then selects **On**. Release 24h/day allows HA to own the timetable. Between events
+it selects **Off**, except during an enabled hourly top-up, rather than maintaining
+a lower reduced target. It does not change the native stored program
 4, so that original timetable remains available if manually selected again.
 
 The boiler's own measured DHW sensor and control logic determine when the burner
@@ -37,6 +37,40 @@ fires. 45°C is the nominal tank-water target, not boiler return temperature and
 not a guaranteed temperature of every part of a shared 500-litre hybrid tank.
 Starting at 06:00 provides an hour of preheat before 07:00; actual readiness
 depends on the starting tank temperature, heat demand and hydraulic system.
+
+## Hourly five-minute top-ups
+
+Enable `input_boolean.bsb_dhw_topup_enabled` alongside the DHW calendar switch.
+At each full hour, including overnight, the same serialized controller checks
+the current DHW temperature **8830**. Main calendar periods take priority, so a
+top-up never competes with their longer charging windows. With a 45°C target,
+start is permitted only **below 43°C** (a fixed 2°C start margin).
+
+A started top-up ends at the target or at a **five-minute deadline**, whichever
+comes first. The deadline is saved before native On and is never extended by
+repeated triggers. A ten-second active-cycle check polls fresh temperature and
+native feedback; a dedicated deadline trigger requests Off without first waiting
+for new temperature replies. Actual target detection has polling/communication
+delay. Off cancels the DHW request; room heating or pump overrun can continue.
+
+`input_text.bsb_dhw_topup_status` reports a requested top-up, a warm-water skip,
+missing feedback, target reached or timeout. A failed Off retains the active
+journal and pending-stop flag, retries and raises a persistent notification.
+Home Assistant startup cancels an interrupted top-up instead of restarting or
+extending it. Enabled choices restore across restart. **Pause & stop DHW** pauses
+both the main calendar and hourly starts; switching only top-ups off leaves main
+periods enabled. Manual DHW controls require pausing the master calendar first.
+
+The dashboard's **Check top-up now** invokes the same checks and consumes this
+hour's one opportunity. Duplicate checks cannot start another top-up in that
+hour. A missing/error reply or already-warm check also consumes the opportunity;
+the next full hour provides another check. It is a capped top-up, not a promise
+to finish a full recharge or to reduce gas use.
+
+Heating-buffer water is not necessarily stored potable water. A 45°C target alone
+does not provide Legionella control for stored tap water. Verify the actual tank
+arrangement and the manufacturer's hygiene procedure; this package does not
+configure or replace it. See [HSE's temperature guidance](https://www.hse.gov.uk/legionnaires/things-to-consider.htm).
 
 The manufacturer's Luna Platinum+ manual states that DHW **Eco is not used on
 this model**. A shared BSB-LAN enum may still expose it. Do not assume it provides
