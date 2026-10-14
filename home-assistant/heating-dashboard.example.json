@@ -342,7 +342,79 @@
           "cards": [
             {
               "type": "heading",
-              "heading": "Heating calendar",
+              "heading": "DHW · Daily schedule",
+              "icon": "mdi:water-boiler-auto"
+            },
+            {
+              "type": "entities",
+              "show_header_toggle": false,
+              "entities": [
+                {
+                  "entity": "input_boolean.bsb_dhw_calendar_enabled",
+                  "name": "Enable DHW calendar"
+                },
+                {
+                  "entity": "input_number.bsb_dhw_calendar_target",
+                  "name": "Scheduled DHW target"
+                },
+                {
+                  "entity": "sensor.bsb_lan_00_37_diagnostics_consumer_8830_dhw_temperature_actual_value_top_b3",
+                  "name": "Measured hot water"
+                },
+                {
+                  "entity": "select.bsb_lan_00_13_dhw_1600_operating_mode",
+                  "name": "Actual DHW mode"
+                }
+              ]
+            },
+            {
+              "type": "markdown",
+              "content": "{{ states('input_text.bsb_dhw_calendar_status') }}\n\n**Every day · Hot water only · 45°C**\n\n- **06:00–07:30** · Preheat for 07:00.\n- **16:00–18:00** · Afternoon hot water.\n\nDHW is **Off outside events**. The boiler uses the measured DHW tank sensor and its own temperature control. The return-water cutoff belongs to room heating.\n\nPause before using manual DHW controls. This calendar resumes after a server restart; timed stops need Home Assistant and its connection.\n\n**Luna Platinum+: Eco mode is not used.** The calendar uses On/Off.\n\n[Edit DHW heating events](/calendar)"
+            },
+            {
+              "type": "button",
+              "name": "Pause & stop DHW",
+              "icon": "mdi:stop-circle-outline",
+              "entity": "script.bsb_dhw_calendar_stop",
+              "show_state": false,
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "script.bsb_dhw_calendar_stop"
+              },
+              "hold_action": {
+                "action": "none"
+              }
+            },
+            {
+              "type": "conditional",
+              "conditions": [
+                {
+                  "entity": "input_boolean.bsb_dhw_stop_pending",
+                  "state": "on"
+                }
+              ],
+              "card": {
+                "type": "markdown",
+                "content": "**DHW stop awaiting confirmation.** Check the boiler/network; the controller is retrying."
+              }
+            },
+            {
+              "type": "calendar",
+              "entities": [
+                "calendar.dhw_heating"
+              ],
+              "initial_view": "dayGridDay",
+              "show_add_event": true,
+              "add_event_style": "header"
+            }
+          ]
+        },
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "Room heating · Calendar",
               "icon": "mdi:calendar-clock"
             },
             {
@@ -358,10 +430,6 @@
                   "name": "During events · return target"
                 },
                 {
-                  "entity": "input_number.bsb_calendar_cool_target",
-                  "name": "Between events · return target"
-                },
-                {
                   "entity": "input_number.bsb_calendar_hysteresis",
                   "name": "Restart below target by"
                 },
@@ -372,19 +440,45 @@
                 {
                   "entity": "input_number.bsb_heat_flow_ceiling",
                   "name": "Maximum requested HC1 flow"
+                },
+                {
+                  "entity": "input_boolean.bsb_weather_gate_enabled",
+                  "name": "Optional outdoor-weather check"
+                },
+                {
+                  "entity": "input_number.bsb_heating_weather_limit",
+                  "name": "Skip heating at or above"
+                },
+                {
+                  "entity": "sensor.bsb_outdoor_weather_estimate",
+                  "name": "Outdoor estimate · Met.no"
+                },
+                {
+                  "entity": "input_boolean.bsb_cold_boost_enabled",
+                  "name": "Cold boost outside events"
+                },
+                {
+                  "entity": "input_number.bsb_cold_boost_temperature",
+                  "name": "Cold boost at or below"
+                },
+                {
+                  "entity": "input_boolean.bsb_cold_boost_overnight",
+                  "name": "Allow cold boost overnight"
                 }
               ]
             },
             {
               "type": "markdown",
-              "content": "{{ states('input_text.bsb_calendar_status') }}\n\n**Events = 50°C return; gaps = 40°C return.** Adjustable above. Starts below target by 2°C, with at least 10 minutes between cycles. The cycle requests a flow setting 5°C above its return target and restores the original contact interpretation and flow setting afterward.\n\n[Add or edit heating periods](/calendar) · Schedule pauses after a server restart."
+              "content": "{{ states('input_text.bsb_calendar_status') }}\n\n**Daily · 30 minutes every two hours**\n06:00, 08:00, 10:00, 12:00, 14:00, 16:00, 18:00 and 20:00.\n\nCircuit 1 enters **Protection between events** unless cold boost applies. Each event uses the return-water target above, currently 50°C. It can stop earlier at that cutoff; a slot does not force continuous burner firing. Automatic cycles **respect the room thermostat**. The override switch is for manual water cycles only.\n\n**Weather control:** at **25°C or above**, room heating is blocked. At **0°C or below**, cold boost allows extra cycles, including overnight when enabled. Thresholds are adjustable. Between these values, the normal daytime slots apply. Cold-boost cycles keep the return cutoff, maximum run time and ten-minute rest.\n\nThe Siemens room target is **18°C**; this is separate from water temperature. Home Assistant currently has no usable measured room temperature. The thermostat and native boiler controls remain responsible for room demand. Missing weather feedback blocks automatic heating; DHW and manual cycles remain independent.\n\n[Edit Heating events](/calendar) · This heating calendar pauses after a Home Assistant restart."
             },
             {
               "type": "calendar",
               "entities": [
                 "calendar.heating"
               ],
-              "initial_view": "listWeek"
+              "initial_view": "dayGridDay",
+              "show_add_event": true,
+              "add_event_style": "header"
             }
           ]
         },

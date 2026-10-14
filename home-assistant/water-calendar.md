@@ -18,21 +18,54 @@ An installation with a shared solar/radiator buffer needs that distinction.
    packages include if absent, validate configuration and restart Home Assistant.
    Do not install a second copy of this controller under a different filename.
 4. Initialize the controls: manual return cutoff **45°C**, maximum cycle
-   **60 minutes**, calendar event target **50°C**, between-events target **40°C**,
+   **60 minutes**, calendar event target **50°C**,
    restart differential **2°C**, and maximum requested HC1 flow setting **55°C**.
    Numeric helpers restore their values rather than resetting operator choices.
 5. Add the cards from `heating-dashboard.example.json` to an existing dashboard,
    preserving its other cards. Gas helpers are described in `gas-calibration.md`.
 6. Add your actual heating periods to the calendar, then enable calendar heating.
-   It starts paused and pauses again after a Home Assistant restart.
+   It starts paused and pauses again after a Home Assistant restart. The verified
+   daily half-hour slots start at 06:00, 08:00, 10:00, 12:00, 14:00, 16:00,
+   18:00 and 20:00. There is no normal 22:00 or overnight event.
 
 The calendar reconciles the current events every minute as well as on start/end
 triggers. It checks all overlapping events, so the end of one event does not
-select the lower target while another is still active. During any event it uses
-the event target; outside events it uses the lower target. A new cycle starts
+stop heating while another is still active. During any event it uses
+the event target; outside events it selects Protection unless the optional
+cold-weather boost applies. A new cycle starts
 below the target by the configured differential. There is a ten-minute minimum
 gap after a completed cycle. This limits rapid cycling; it is not an AI model or
 an annual gas allowance enforcement mechanism.
+
+The event end also bounds the cycle deadline. A half-hour slot cannot keep a
+calendar-owned cycle running for the manual controller's full hour. A cycle can
+finish earlier when its return-water target is reached.
+
+## Weather and room-temperature baseline
+
+The optional weather input is `weather.forecast_home` (Met.no), exposed as an
+outdoor estimate rather than a boiler sensor. Adapt that entity for another HA
+installation. Stale, unavailable or non-Celsius data is not replaced with zero.
+When enabled, the warm threshold skips/stops automatic room heating at or above
+the configured value (verified setup **25°C**).
+
+Cold boost can permit extra heating outside calendar events at or below a
+separate threshold (verified setup **0°C**). Overnight permission is separate
+and was enabled for this installation. Cold cycles keep the same cutoff, maximum
+run time and ten-minute rest; a new cold-only cycle is bounded to 30 minutes.
+Turning off the calendar also pauses cold boost. Manual Start pauses both.
+
+Automatic calendar/cold cycles **respect the thermostat heat request** and never
+reinterpret H5 to force demand. The H5 override is available only for a manual
+water cycle. An outdoor cold reading permits heating; it does not bypass room
+limitation or prove that the burner is firing.
+
+The requested room baseline is **18°C**, set in the native room controls. A
+30°C water setting is not a conversion of that room target. HA currently has no
+usable measured room temperature from the boiler; it cannot independently
+guarantee 18°C or control individual room emitters without their sensors and
+actuators. Native thermostat/boiler controls remain responsible for room demand.
+These automations do not repeatedly overwrite manual room setpoint changes.
 
 Manual Start pauses calendar heating and runs a single cycle. Stop pauses the
 calendar too, so the scheduler cannot immediately restart the stopped cycle.
@@ -43,7 +76,7 @@ Ordinary independent DHW charging can still operate.
 
 Without the override switch, the existing thermostat must request heat.
 The verified controller assigns H5 to **Room thermostat HC1 (5977 = 18)**.
-Override retains that assignment. It temporarily changes **H5 contact type
+For manual water cycles, override retains that assignment. It temporarily changes **H5 contact type
 (5978)** to make the observed contact a heat request: an open contact uses
 normally-closed interpretation; a closed contact uses normally-open
 interpretation. If the contact changes during an owned cycle, the controller
@@ -85,10 +118,12 @@ hydraulic protections configured for the installation.
 
 ## Validation
 
-Fourteen focused tests cover the actual Jinja decisions, missing/stale feedback,
+Nineteen focused tests cover the actual Jinja decisions, missing/stale feedback,
 write allowlist, fresh repeated readings, ownership/restoration, fault handling,
-contact interpretation, switching off an owned override, persisted recovery journal, overlapping events and
-timezone-aware event boundaries. Run with Python, PyYAML and Jinja2:
+contact interpretation, switching off an owned override, persisted recovery journal,
+event-bounded deadlines, off gaps, warm/cold weather, overnight permission,
+automatic thermostat respect, overlapping events and timezone-aware boundaries.
+Run with Python, PyYAML and Jinja2:
 
 ```text
 python test_water_calendar.py
@@ -101,9 +136,9 @@ The boiler reported no error on that route. Water can overshoot the threshold
 between readings and during pump overrun; the target is not a hard thermal cap.
 
 The BMS overview was checked at desktop and phone widths. A full 50°C calendar
-cycle has not been run; no heating periods were invented for the user. Calendar
-reconciliation was verified on the live empty calendar, with overlapping windows
-and boundaries covered by the tests.
+cycle has not been run. The daily events were added from the user's requested
+daytime schedule, and native Protection was confirmed between periods.
+Overlapping windows, deadlines and weather boundaries are covered by tests.
 
 For rollback, first stop an owned cycle and verify the original contact/flow
 settings. Back up the current package and dashboard, then restore the previous

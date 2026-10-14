@@ -68,6 +68,7 @@ class WaterCalendarTests(unittest.TestCase):
             'input_number.bsb_cycle_return_target': State('45'),
             'input_text.bsb_saved_flow': State('35.0'),
             'input_text.bsb_saved_h5': State('1 - normal opened'),
+            'input_text.bsb_heat_owner': State('manual'),
             'input_text.bsb_cycle_h5': State('0 - normal closed'),
             'input_datetime.bsb_manual_heat_deadline': State((NOW + timedelta(hours=1)).isoformat()),
         })
@@ -209,8 +210,8 @@ class WaterCalendarTests(unittest.TestCase):
         self.assertLess(flush, first_write)
 
     def test_overlapping_calendar_windows_and_timezone(self):
-        expr = next(x['variables']['window_active'] for x in CONFIG['automation'][1]['actions']
-                    if 'window_active' in x.get('variables', {}))
+        expr = next(x['variables']['event_window_active'] for x in CONFIG['automation'][1]['actions']
+                    if 'event_window_active' in x.get('variables', {}))
         def active(events):
             return self.render(expr, calendar_result={'calendar.heating': {'events': events}})
         self.assertFalse(active([]))
@@ -218,6 +219,70 @@ class WaterCalendarTests(unittest.TestCase):
         self.assertTrue(active([
             SimpleNamespace(start='2026-10-13T22:00:00+02:00', end='2026-10-14T02:00:00+02:00'),
             SimpleNamespace(start='2026-10-14T01:30:00+02:00', end='2026-10-14T03:00:00+02:00')]))
+
+    def test_calendar_deadline_is_bounded_by_event_end(self):
+        expr = next(x['data']['timestamp'] for x in self.start
+                    if x.get('action') == 'input_datetime.set_datetime')
+        self.states['input_number.bsb_manual_heat_max_minutes'] = State('60')
+        half_hour = NOW.timestamp() + 1800
+        self.assertEqual(self.render(expr, source='calendar', end_at=half_hour),half_hour)
+        self.assertEqual(self.render(expr, source='calendar', end_at=NOW.timestamp()+7200),NOW.timestamp()+3600)
+        self.assertEqual(self.render(expr, source='manual'),NOW.timestamp()+3600)
+
+    def test_calendar_gaps_stop_and_never_start(self):
+        actions = CONFIG['automation'][1]['actions']
+        gap = next(node['choose'][0] for node in actions if 'choose' in node
+                   and node['choose'][0]['conditions'] == '{{ not window_active or weather_blocked }}')
+        self.assertTrue(self.render(gap['conditions'],window_active=False,weather_blocked=False))
+        self.assertFalse(self.render(gap['conditions'],window_active=True,weather_blocked=False))
+        self.assertTrue(self.render(gap['conditions'],window_active=True,weather_blocked=True))
+        body=str(gap['sequence'])
+        self.assertIn('Heating event ended',body)
+        self.assertIn('0 - Protection',body)
+        self.assertNotIn("'operation': 'start'",body)
+        start = next(x for x in actions if x.get('action') == 'script.bsb_heat_control')
+        self.assertEqual(start['data']['end_at'],'{{ window_end }}')
+
+    def test_optional_weather_gate_preserves_schedule_when_disabled(self):
+        expr = next(node['variables']['weather_blocked'] for node in CONFIG['automation'][1]['actions']
+                    if 'weather_blocked' in node.get('variables',{}))
+        gate='input_boolean.bsb_weather_gate_enabled'
+        outside='sensor.bsb_outdoor_weather_estimate'
+        self.states[gate]=State('off')
+        self.states[outside]=State('unknown')
+        self.states['input_number.bsb_heating_weather_limit']=State('18')
+        self.assertFalse(self.render(expr))
+        self.states[gate]=State('on')
+        self.assertTrue(self.render(expr))
+        for temp,blocked in [('17.9',False),('18',True),('25',True),('unavailable',True)]:
+            self.states[outside]=State(temp)
+            self.assertEqual(self.render(expr),blocked)
+
+    def test_calendar_and_cold_boost_respect_thermostat(self):
+        expr=self.start_vars['use_override']
+        self.assertTrue(self.render(expr,source='manual'))
+        self.assertFalse(self.render(expr,source='calendar'))
+        self.states['input_text.bsb_heat_owner']=State('calendar')
+        self.states['input_boolean.bsb_cycle_override']=State('off')
+        self.states[H5]=State('0 - normal closed')
+        self.states[FLOW]=State('50')
+        self.assertFalse(self.render(self.guard_vars['external_change']))
+
+    def test_cold_boost_threshold_and_overnight_permission(self):
+        expr=next(x['variables']['cold_boost'] for x in CONFIG['automation'][1]['actions']
+                  if 'cold_boost' in x.get('variables',{}))
+        for entity in ['input_boolean.bsb_weather_gate_enabled','input_boolean.bsb_cold_boost_enabled']:
+            self.states[entity]=State('on')
+        self.states['input_number.bsb_cold_boost_temperature']=State('0')
+        self.states['sensor.bsb_outdoor_weather_estimate']=State('-1')
+        self.states['input_boolean.bsb_cold_boost_overnight']=State('off')
+        self.assertFalse(self.render(expr))
+        self.states['input_boolean.bsb_cold_boost_overnight']=State('on')
+        self.assertTrue(self.render(expr))
+        self.states['sensor.bsb_outdoor_weather_estimate']=State('0.1')
+        self.assertFalse(self.render(expr))
+        self.states['sensor.bsb_outdoor_weather_estimate']=State('unknown')
+        self.assertFalse(self.render(expr))
 
     def test_journal_before_writes_and_no_retained_commands(self):
         journal = next(i for i, x in enumerate(self.start) if x.get('action') == 'input_boolean.turn_on')
