@@ -427,23 +427,19 @@
                 },
                 {
                   "entity": "input_number.bsb_calendar_hot_target",
-                  "name": "During events · return target"
+                  "name": "Return-water cutoff"
                 },
                 {
                   "entity": "input_number.bsb_calendar_hysteresis",
                   "name": "Restart below target by"
                 },
                 {
-                  "entity": "input_boolean.bsb_thermostat_override",
-                  "name": "Ignore room thermostat during cycle"
-                },
-                {
                   "entity": "input_number.bsb_heat_flow_ceiling",
-                  "name": "Maximum requested HC1 flow"
+                  "name": "Water flow ceiling"
                 },
                 {
                   "entity": "input_boolean.bsb_weather_gate_enabled",
-                  "name": "Optional outdoor-weather check"
+                  "name": "Use outdoor weather"
                 },
                 {
                   "entity": "input_number.bsb_heating_weather_limit",
@@ -547,6 +543,10 @@
                 {
                   "entity": "input_number.bsb_manual_heat_max_minutes",
                   "name": "Maximum duration"
+                },
+                {
+                  "entity": "input_boolean.bsb_thermostat_override",
+                  "name": "Manual thermostat override"
                 },
                 {
                   "entity": "input_number.bsb_cycle_return_target",
