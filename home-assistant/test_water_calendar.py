@@ -292,8 +292,63 @@ class WaterCalendarTests(unittest.TestCase):
             if isinstance(item, dict) and item.get('action') == 'mqtt.publish':
                 self.assertTrue(item['data']['topic'].endswith('/poll'))
                 self.assertFalse(item['data']['retain'])
-        self.assertFalse(CONFIG['input_boolean']['bsb_calendar_enabled']['initial'])
+        self.assertNotIn('initial', CONFIG['input_boolean']['bsb_calendar_enabled'])
         self.assertEqual(CONFIG['script']['bsb_heat_control']['mode'], 'queued')
+
+    def test_restart_preserves_enable_and_pause_choice(self):
+        self.assertNotIn('initial',CONFIG['input_boolean']['bsb_calendar_enabled'])
+        self.assertTrue(CONFIG['input_boolean']['bsb_heat_restart_pending']['initial'])
+        for choice in ['on','off']:
+            self.states['input_boolean.bsb_calendar_enabled']=State(choice)
+            recovery=CONFIG['script']['bsb_heat_restart_reconcile']['sequence']
+            self.assertFalse(any(node.get('action') == 'input_boolean.turn_on'
+                and node.get('target',{}).get('entity_id') == 'input_boolean.bsb_calendar_enabled'
+                for node in walk(recovery) if isinstance(node,dict)))
+
+    def test_start_and_calendar_wait_for_restart_checks(self):
+        expr=self.start[0]['choose'][0]['conditions']
+        for value,blocked in [('unknown',True),('on',True),('off',False)]:
+            self.states['input_boolean.bsb_heat_restart_pending']=State(value)
+            self.assertEqual(self.render(expr),blocked)
+            cal=CONFIG['automation'][1]['actions'][0]['choose'][0]['conditions']
+            self.assertEqual(self.render(cal),blocked)
+        guard=CONFIG['automation'][0]['conditions']
+        self.assertIn({'condition':'state','entity_id':'input_boolean.bsb_heat_restart_pending','state':'off'},guard)
+
+    def test_restart_checks_fresh_feedback_then_recovery_before_release(self):
+        recovery=CONFIG['script']['bsb_heat_restart_reconcile']['sequence']
+        wait_index=next(i for i,node in enumerate(recovery) if 'wait_template' in node)
+        stop_index=next(i for i,node in enumerate(recovery) if 'Restart recovery' in str(node))
+        ready_index=next(i for i,node in enumerate(recovery)
+                         if node.get('action')=='input_boolean.turn_off'
+                         and node.get('target',{}).get('entity_id')=='input_boolean.bsb_heat_restart_pending')
+        self.assertLess(wait_index,stop_index)
+        self.assertLess(stop_index,ready_index)
+        expr=recovery[wait_index]['wait_template']
+        self.assertTrue(self.render(expr,restart_read_at=NOW.timestamp()-1))
+        self.states[READBACK[MODE]]=State((NOW-timedelta(seconds=60)).isoformat())
+        self.assertFalse(self.render(expr,restart_read_at=NOW.timestamp()-1))
+
+    def test_missing_calendar_retries_without_disabling_schedule(self):
+        branch=next(node['choose'][0] for node in CONFIG['automation'][1]['actions']
+                    if 'choose' in node and 'Calendar unavailable;' in str(node['choose'][0]['sequence']))
+        for node in walk(branch['sequence']):
+            if isinstance(node,dict):
+                self.assertFalse(node.get('action')=='input_boolean.turn_off'
+                    and node.get('target',{}).get('entity_id')=='input_boolean.bsb_calendar_enabled')
+        self.assertIn('Calendar unavailable',str(branch['sequence']))
+
+    def test_restart_missing_entity_is_not_a_boiler_fault(self):
+        recovery=CONFIG['script']['bsb_heat_restart_reconcile']['sequence']
+        fault=next(node['choose'][0]['conditions'] for node in recovery
+                   if 'choose' in node and 'input_boolean.bsb_heat_fault' in str(node['choose'][0]['sequence']))
+        self.states[ERROR]=State('unknown')
+        self.payloads[READBACK[ERROR]]='0 - 0:No error'
+        self.assertFalse(self.render(fault))
+        self.payloads[READBACK[ERROR]]='10 - 10:Outside sensor error'
+        self.assertTrue(self.render(fault))
+        self.payloads[READBACK[ERROR]]='unknown'
+        self.assertFalse(self.render(fault))
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

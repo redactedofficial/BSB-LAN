@@ -1,7 +1,7 @@
 # Circuit 1 only. Requires original BSB-LAN discovery and calendar.heating.
 # Stop/cutoff restores owned H5 contact type and flow settings; circuit 1 ends in Protection.
 # A server outage removes this automatic cutoff; native boiler limits remain.
-# Calendar is deliberately paused at each HA restart. Helper values restore.
+# Calendar enable state restores. Fresh feedback and interrupted-cycle recovery precede scheduling.
 input_number:
   bsb_return_stop_temperature:
     name: Manual return-water stop temperature
@@ -78,7 +78,9 @@ input_boolean:
     name: Heating water cycle active
   bsb_calendar_enabled:
     name: Calendar heating enabled
-    initial: false
+  bsb_heat_restart_pending:
+    name: Heating restart checks pending
+    initial: true
   bsb_thermostat_override:
     name: Ignore room thermostat during water cycle
   bsb_cycle_override:
@@ -203,6 +205,15 @@ script:
     - choose:
       - conditions: '{{ operation == ''start'' }}'
         sequence:
+        - choose:
+          - conditions: '{{ not is_state(''input_boolean.bsb_heat_restart_pending'', ''off'') }}'
+            sequence:
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.bsb_manual_heat_status
+              data:
+                value: 'Blocked: waiting for restart recovery'
+            - stop: 'Blocked: waiting for restart recovery'
         - variables:
             start_read_at: '{{ as_timestamp(now()) }}'
         - action: mqtt.publish
@@ -1373,6 +1384,105 @@ script:
       data:
         operation: stop
         reason: Manual stop
+  bsb_heat_restart_reconcile:
+    alias: BSB verify heating after restart
+    mode: single
+    sequence:
+    - condition: state
+      entity_id: input_boolean.bsb_heat_restart_pending
+      state: 'on'
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.bsb_calendar_status
+      data:
+        value: '{{ ''Waiting for restart checks; scheduling will resume'' if is_state(''input_boolean.bsb_calendar_enabled'',
+          ''on'') else ''Paused; restart checks pending'' }}'
+    - variables:
+        restart_read_at: '{{ as_timestamp(now()) }}'
+    - action: mqtt.publish
+      data:
+        topic: BSB-LAN/0/36/8314/poll
+        payload: ''
+        retain: false
+      continue_on_error: true
+    - action: mqtt.publish
+      data:
+        topic: BSB-LAN/0/29/5978/poll
+        payload: ''
+        retain: false
+      continue_on_error: true
+    - action: mqtt.publish
+      data:
+        topic: BSB-LAN/0/9/742/poll
+        payload: ''
+        retain: false
+      continue_on_error: true
+    - action: mqtt.publish
+      data:
+        topic: BSB-LAN/0/9/700/poll
+        payload: ''
+        retain: false
+      continue_on_error: true
+    - action: mqtt.publish
+      data:
+        topic: BSB-LAN/0/29/5977/poll
+        payload: ''
+        retain: false
+      continue_on_error: true
+    - action: mqtt.publish
+      data:
+        topic: BSB-LAN/0/33/7865/poll
+        payload: ''
+        retain: false
+      continue_on_error: true
+    - action: mqtt.publish
+      data:
+        topic: BSB-LAN/0/31/6700/poll
+        payload: ''
+        retain: false
+      continue_on_error: true
+    - wait_template: '{{ (state_attr(''sensor.bsb_heat_return_readback'', ''received_at'') | float(0)) >= restart_read_at
+        and (state_attr(''sensor.bsb_heat_h5_readback'', ''received_at'') | float(0)) >= restart_read_at and (state_attr(''sensor.bsb_heat_flow_readback'',
+        ''received_at'') | float(0)) >= restart_read_at and (state_attr(''sensor.bsb_heat_mode_readback'', ''received_at'')
+        | float(0)) >= restart_read_at and (state_attr(''sensor.bsb_heat_role_readback'', ''received_at'') | float(0)) >=
+        restart_read_at and (state_attr(''sensor.bsb_heat_contact_readback'', ''received_at'') | float(0)) >= restart_read_at
+        and (state_attr(''sensor.bsb_heat_error_readback'', ''received_at'') | float(0)) >= restart_read_at }}'
+      timeout: 00:00:20
+      continue_on_timeout: true
+    - choose:
+      - conditions: '{{ not wait.completed }}'
+        sequence:
+        - stop: Retry restart checks when boiler feedback returns
+    - choose:
+      - conditions: '{{ is_state(''input_boolean.bsb_manual_heat_active'', ''on'') }}'
+        sequence:
+        - action: script.bsb_heat_control
+          data:
+            operation: stop
+            reason: Restart recovery
+    - choose:
+      - conditions: '{{ not is_state(''input_boolean.bsb_manual_heat_active'', ''off'') }}'
+        sequence:
+        - stop: Interrupted-cycle recovery not confirmed; retry pending
+    - choose:
+      - conditions: '{% set reply = state_attr(''sensor.bsb_heat_error_readback'', ''payload'') | default('''', true) | string
+          %}{{ is_number(reply.split('' - '')[0]) and reply.split('' - '')[0] | int(-1) != 0 }}'
+        sequence:
+        - action: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.bsb_heat_fault
+        - action: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.bsb_calendar_enabled
+    - choose:
+      - conditions: '{{ is_state(''input_boolean.bsb_calendar_enabled'', ''on'') and states(''calendar.heating'') not in [''on'',
+          ''off''] }}'
+        sequence:
+        - stop: Retry restart checks when the calendar becomes available
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.bsb_heat_restart_pending
+    - action: homeassistant.save_persistent_states
 automation:
 - id: bsb_manual_return_cutoff
   alias: BSB water-cycle cutoff and recovery
@@ -1398,6 +1508,9 @@ automation:
   - condition: state
     entity_id: input_boolean.bsb_manual_heat_active
     state: 'on'
+  - condition: state
+    entity_id: input_boolean.bsb_heat_restart_pending
+    state: 'off'
   - condition: state
     entity_id: script.bsb_heat_control
     state: 'off'
@@ -1436,8 +1549,8 @@ automation:
         (states(''text.bsb_lan_00_09_heating_circuit_1_742_flow_temp_setpoint_room_thermostat_hc1_degc'') | float - states(''input_number.bsb_cycle_flow_target'')
         | float) | abs >= 0.11) }}'
   - choose:
-    - conditions: '{{ trigger.id == ''restart'' or states(''input_text.bsb_manual_heat_status'').startswith((''Stopping:'',
-        ''Stop not'', ''Start protection'', ''Thermostat restore'', ''Flow setting restore'', ''Restoration feedback'')) }}'
+    - conditions: '{{ states(''input_text.bsb_manual_heat_status'').startswith((''Stopping:'', ''Stop not'', ''Start protection'',
+        ''Thermostat restore'', ''Flow setting restore'', ''Restoration feedback'')) }}'
       sequence:
       - action: input_boolean.turn_off
         target:
@@ -1517,7 +1630,14 @@ automation:
     - input_number.bsb_cold_boost_temperature
   - trigger: homeassistant
     event: start
+  - trigger: state
+    entity_id: input_boolean.bsb_heat_restart_pending
+    to: 'off'
   actions:
+  - choose:
+    - conditions: '{{ not is_state(''input_boolean.bsb_heat_restart_pending'', ''off'') }}'
+      sequence:
+      - stop: Wait for restart checks before reconciling the calendar
   - variables:
       calendar_result: {}
   - action: calendar.get_events
@@ -1536,10 +1656,7 @@ automation:
         target:
           entity_id: input_text.bsb_calendar_status
         data:
-          value: Calendar unavailable; heating schedule paused
-      - action: input_boolean.turn_off
-        target:
-          entity_id: input_boolean.bsb_calendar_enabled
+          value: Calendar unavailable; heating stopped; scheduling will retry
       - choose:
         - conditions: '{{ is_state(''input_boolean.bsb_manual_heat_active'', ''on'') and states(''input_text.bsb_heat_owner'')
             == ''calendar'' }}'
@@ -1680,6 +1797,20 @@ automation:
       source: calendar
       target: '{{ calendar_target }}'
       end_at: '{{ window_end }}'
+- id: bsb_heating_restart_recovery
+  alias: BSB heating restart recovery
+  mode: single
+  triggers:
+  - trigger: homeassistant
+    event: start
+  - trigger: time_pattern
+    seconds: /30
+  conditions:
+  - condition: state
+    entity_id: input_boolean.bsb_heat_restart_pending
+    state: 'on'
+  actions:
+  - action: script.bsb_heat_restart_reconcile
 template:
 - sensor:
   - name: Heating calendar return target

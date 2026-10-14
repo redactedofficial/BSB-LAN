@@ -24,7 +24,8 @@ An installation with a shared solar/radiator buffer needs that distinction.
 5. Add the cards from `heating-dashboard.example.json` to an existing dashboard,
    preserving its other cards. Gas helpers are described in `gas-calibration.md`.
 6. Add your actual heating periods to the calendar, then enable calendar heating.
-   It starts paused and pauses again after a Home Assistant restart. The verified
+   It starts paused on first installation. Your enabled/paused choice restores
+   after a Home Assistant restart. The verified
    daily half-hour slots start at 06:00, 08:00, 10:00, 12:00, 14:00, 16:00,
    18:00 and 20:00. There is no normal 22:00 or overnight event.
 
@@ -108,7 +109,15 @@ The recovery journal is explicitly saved before boiler writes. The controller
 serializes starts, stops and thermostat-request refreshes. It stops and pauses
 the calendar on a boiler error, stale feedback or the maximum run time. Failed
 stops retain their journal for retry and raise a local notification. Restart
-recovery stops an unfinished cycle instead of resuming it automatically.
+recovery waits for fresh boiler feedback, stops an unfinished cycle and restores
+its owned settings. It then reconciles the current calendar and weather instead
+of continuing the interrupted cycle's old deadline. Enabled schedules resume;
+intentionally paused schedules remain paused. The ten-minute rest after recovery
+still applies. A genuine boiler fault or failed stop can still pause scheduling.
+
+A calendar that is temporarily unavailable stops calendar-owned heating and
+retries without discarding the enabled choice. Startup checks block new cycles
+until boiler feedback and, for an enabled schedule, the calendar are available.
 
 **The return-water cutoff runs on Home Assistant.** A server or network outage
 can prevent it from sending a stop. The boiler's factory protections remain;
@@ -118,11 +127,13 @@ hydraulic protections configured for the installation.
 
 ## Validation
 
-Nineteen focused tests cover the actual Jinja decisions, missing/stale feedback,
+Twenty-four focused tests cover the actual Jinja decisions, missing/stale feedback,
 write allowlist, fresh repeated readings, ownership/restoration, fault handling,
 contact interpretation, switching off an owned override, persisted recovery journal,
 event-bounded deadlines, off gaps, warm/cold weather, overnight permission,
-automatic thermostat respect, overlapping events and timezone-aware boundaries.
+automatic thermostat respect, overlapping events and timezone-aware boundaries,
+startup gating, fresh restart feedback, recovery ordering, restored enable state,
+and unavailable startup entities that must not masquerade as boiler faults.
 Run with Python, PyYAML and Jinja2:
 
 ```text
