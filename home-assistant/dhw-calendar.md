@@ -32,9 +32,9 @@ it selects **Off**, except during an enabled hourly top-up, rather than maintain
 a lower reduced target. It does not change the native stored program
 4, so that original timetable remains available if manually selected again.
 
-The boiler's own measured DHW sensor and control logic determine when the burner
-fires. 45°C is the nominal tank-water target, not boiler return temperature and
-not a guaranteed temperature of every part of a shared 500-litre hybrid tank.
+The boiler's own store/DHW probe and control logic determine when the burner
+fires. 45°C is the nominal store target, not boiler return temperature, tap-outlet
+temperature or a guaranteed temperature of every part of a shared 500-litre tank.
 Starting at 06:00 provides an hour of preheat before 07:00; actual readiness
 depends on the starting tank temperature, heat demand and hydraulic system.
 
@@ -59,7 +59,8 @@ journal and pending-stop flag, retries and raises a persistent notification.
 Home Assistant startup cancels an interrupted top-up instead of restarting or
 extending it. Enabled choices restore across restart. **Pause & stop DHW** pauses
 both the main calendar and hourly starts; switching only top-ups off leaves main
-periods enabled. Manual DHW controls require pausing the master calendar first.
+periods enabled. Direct native DHW mode/target controls require pausing the master
+calendar first; the owned Heat once buttons coordinate with it automatically.
 
 The dashboard's **Check top-up now** invokes the same checks and consumes this
 hour's one opportunity. Duplicate checks cannot start another top-up in that
@@ -79,6 +80,11 @@ See [Baxi's model manual](https://baxi.at/wp-content/uploads/2024/06/Luna-Platin
 
 Calendar starts/ends and a minute-level reconciliation keep the current state
 correct after missed edges or restart. Enabled state restores across HA restart.
+One-time requests and preset buttons are described in [dhw-once.md](dhw-once.md).
+They share the same serialized controller and temporarily suspend automatic DHW
+writes without changing the calendar's enabled choice. Normal target writes now
+enforce 35°C through the fresh native ceiling, capped at 60°C.
+
 Starts require fresh native feedback and no boiler error. Failed stops persist
 and retry every minute, with a local notification. Precise MQTT receipt timestamps
 verify repeated values; an old retained value cannot confirm a new command.
@@ -95,9 +101,10 @@ watchdog or a replacement for native protections or cylinder hygiene settings.
 
 ## Verification and recovery
 
-Seven focused tests cover real template boundaries, overlaps, all-day/missing
+26 focused tests cover real template boundaries, overlaps, all-day/missing
 events, winter timezone offset, the DHW-only allowlist, precise acknowledgements,
-and persistent stop retry. Run in an environment with PyYAML, Jinja2 and timezone
+and persistent stop retry, manual one-time ownership and native target limits.
+Run in an environment with PyYAML, Jinja2 and timezone
 data (Windows may need `tzdata`):
 
 ```text

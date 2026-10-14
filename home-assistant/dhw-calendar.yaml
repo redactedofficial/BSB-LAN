@@ -1,6 +1,6 @@
-# Native BSB-LAN DHW only; main periods and hourly top-ups use one serialized controller.
-# Top-up journal is saved before On. Restart cancels interrupted top-ups.
-# Five-minute deadlines need HA/MQTT; native boiler protections remain authoritative.
+# Original BSB-LAN. Shared DHW controller; OEM ceiling read only; normal target writes 35..60°C.
+# One-time cycles journal settings before On and cancel on target/deadline/restart.
+# Hygiene setting refresh is read only; the separate weekly proposal remains disabled.
 input_boolean:
   bsb_dhw_calendar_enabled:
     name: DHW calendar enabled
@@ -18,21 +18,58 @@ input_boolean:
     name: Hot-water top-up restart cleanup
     initial: true
     icon: mdi:restart
+  bsb_dhw_once_active:
+    name: One-time hot-water cycle active
+    icon: mdi:water-boiler
 input_number:
   bsb_dhw_calendar_target:
     name: Scheduled hot-water target
-    min: 40
+    min: 35
     max: 60
     step: 1
     mode: box
     unit_of_measurement: °C
   bsb_dhw_topup_cycle_target:
     name: Active hot-water top-up target
-    min: 40
+    min: 35
     max: 60
     step: 1
     mode: box
     unit_of_measurement: °C
+  bsb_dhw_once_target:
+    name: Requested one-time water target
+    min: 20
+    max: 75
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_dhw_once_minutes:
+    name: One-time water maximum duration
+    min: 1
+    max: 120
+    step: 1
+    mode: box
+    unit_of_measurement: min
+  bsb_dhw_once_cycle_target:
+    name: Active one-time water target
+    min: 20
+    max: 75
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_dhw_once_original_target:
+    name: Original water target for restoration
+    min: 0
+    max: 100
+    step: 0.1
+    mode: box
+    unit_of_measurement: °C
+  bsb_dhw_once_original_release:
+    name: Original DHW release for restoration
+    min: 0
+    max: 2
+    step: 1
+    mode: box
 input_text:
   bsb_dhw_calendar_status:
     name: DHW calendar status
@@ -43,6 +80,9 @@ input_text:
   bsb_dhw_topup_last_slot:
     name: Last hot-water top-up check slot
     max: 32
+  bsb_dhw_once_status:
+    name: One-time water cycle status
+    max: 200
 template:
 - triggers:
   - trigger: mqtt
@@ -99,6 +139,91 @@ template:
     attributes:
       payload: '{{ trigger.payload }}'
       received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/13/1614/status
+  sensor:
+  - name: BSB DHW maximum readback
+    unique_id: bsb_dhw_maximum_receipt
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/34/8003/status
+  sensor:
+  - name: BSB DHW status readback
+    unique_id: bsb_dhw_status_receipt
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- sensor:
+  - name: BSB normal DHW target ceiling
+    unique_id: bsb_normal_dhw_target_ceiling
+    unit_of_measurement: °C
+    state: '{{ [60, state_attr(''sensor.bsb_dhw_maximum_readback'',''payload'') | float(0)] | min }}'
+    availability: |-
+      {{ is_number(state_attr('sensor.bsb_dhw_maximum_readback','payload'))
+         and state_attr('sensor.bsb_dhw_maximum_readback','received_at') | float(0) > as_timestamp(now()) - 180 }}
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/13/1640/status
+  sensor:
+  - name: BSB hygiene function readback
+    unique_id: bsb_hygiene_function_receipt
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/13/1642/status
+  sensor:
+  - name: BSB hygiene day readback
+    unique_id: bsb_hygiene_day_receipt
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/13/1644/status
+  sensor:
+  - name: BSB hygiene time readback
+    unique_id: bsb_hygiene_time_receipt
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/13/1645/status
+  sensor:
+  - name: BSB hygiene target readback
+    unique_id: bsb_hygiene_target_receipt
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/13/1646/status
+  sensor:
+  - name: BSB hygiene dwell readback
+    unique_id: bsb_hygiene_dwell_receipt
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
 script:
   bsb_dhw_write_checked:
     alias: BSB checked DHW setting
@@ -114,8 +239,8 @@ script:
         p: '{{ parameter | int(-1) }}'
         valid: |-
           {{ (p == 1600 and value | string in ['0', '1']) or
-             (p == 1610 and is_number(value) and 40 <= value | float <= 60) or
-             (p == 1620 and value | string == '0') }}
+             (p == 1610 and is_number(value) and 35 <= value | float <= [60, state_attr('sensor.bsb_dhw_maximum_readback', 'payload') | float(0)] | min and state_attr('sensor.bsb_dhw_maximum_readback', 'received_at') | float(0) > as_timestamp(now()) - 30) or
+             (p == 1620 and value | string in ['0', '1', '2']) }}
         receipt: |-
           {{ {1600:'sensor.bsb_dhw_mode_readback',
               1610:'sensor.bsb_dhw_target_readback',
@@ -157,12 +282,27 @@ script:
         description: Check one top-up opportunity this hour
       recover:
         description: Cancel an interrupted top-up after startup
+      manual_action:
+        description: One-time start/stop/monitor
+      manual_target:
+        description: Requested one-time target
     sequence:
     - variables:
         stopping: '{{ force_off | default(false) | bool }}'
         check_topup: '{{ hourly_check | default(false) | bool }}'
         recovering: '{{ recover | default(false) | bool or is_state(''input_boolean.bsb_dhw_topup_recovery_pending'',
           ''on'') }}'
+    - if: |-
+        {{ is_state('input_boolean.bsb_dhw_once_active','on')
+           or manual_action | default('') in ['start','stop'] }}
+      then:
+      - action: script.bsb_dhw_once_control
+        data:
+          operation: '{{ manual_action | default("monitor") }}'
+          requested_target: '{{ manual_target | default(states("input_number.bsb_dhw_once_target")) }}'
+          force_stop: '{{ stopping }}'
+          recover: '{{ recovering }}'
+      - stop: Owned manual cycle has priority over all calendar writes
     - condition: template
       value_template: |-
         {{ stopping or is_state('input_boolean.bsb_dhw_calendar_enabled', 'on')
@@ -238,6 +378,7 @@ script:
         - 13/1620
         - 31/6700
         - 37/8830
+        - 13/1614
         sequence:
         - action: mqtt.publish
           continue_on_error: true
@@ -249,7 +390,8 @@ script:
         \ state_attr('sensor.bsb_dhw_target_readback', 'received_at') | float(0) >= read_at\n   and state_attr('sensor.bsb_dhw_release_readback',\
         \ 'received_at') | float(0) >= read_at\n   and state_attr('sensor.bsb_dhw_error_readback', 'received_at')\
         \ | float(0) >= read_at \n   and (not temperature_needed or\n        state_attr('sensor.bsb_dhw_temperature_readback',\
-        \ 'received_at') | float(0) >= read_at) }}"
+        \ 'received_at') | float(0) >= read_at) \n and state_attr('sensor.bsb_dhw_maximum_readback','received_at')\
+        \ | float(0) >= read_at }}"
       timeout: 00:00:15
       continue_on_timeout: true
     - variables:
@@ -267,7 +409,7 @@ script:
         topup_should_end: |-
           {{ is_state('input_boolean.bsb_dhw_topup_active', 'on') and
              (main_window_active or not temperature_ok or not feedback_ok or not calendar_ok
-              or not 40 <= target_temperature <= 60
+              or not 35 <= target_temperature <= [60,state_attr('sensor.bsb_dhw_maximum_readback','payload') | float(0)] | min
               or actual_temperature >= states('input_number.bsb_dhw_topup_cycle_target') | float(0)
               or (states('input_number.bsb_dhw_topup_cycle_target') | float(0) - target_temperature) | abs > 0.11) }}
     - if: '{{ topup_should_end }}'
@@ -294,7 +436,7 @@ script:
         topup_may_start: |-
           {{ topup_opportunity and calendar_ok and feedback_ok and temperature_ok
              and not is_state('input_boolean.bsb_dhw_stop_pending', 'on')
-             and 40 <= target_temperature <= 60
+             and 35 <= target_temperature <= [60,state_attr('sensor.bsb_dhw_maximum_readback','payload') | float(0)] | min
              and actual_temperature < target_temperature - 2 }}
     - if: '{{ topup_opportunity }}'
       then:
@@ -308,7 +450,7 @@ script:
           entity_id: input_text.bsb_dhw_topup_status
         data:
           value: '{{ now().strftime(''%H:%M'') }} · {% if not calendar_ok or not feedback_ok or not temperature_ok
-            %}Skipped: missing fresh feedback or boiler error. {% elif not 40 <= target_temperature <= 60 %}Skipped:
+            %}Skipped: missing fresh feedback or boiler error. {% elif not 35 <= target_temperature <= [60,state_attr(''sensor.bsb_dhw_maximum_readback'',''payload'') | float(0)] | min %}Skipped:
             invalid target. {% elif is_state(''input_boolean.bsb_dhw_stop_pending'', ''on'') %}Skipped: previous
             stop unconfirmed. {% elif not topup_may_start %}Skipped: water warm enough ({{ actual_temperature |
             round(1) }}°C). {% else %}Preparing five-minute top-up.{% endif %}'
@@ -343,7 +485,7 @@ script:
              and window_end | float(0) > as_timestamp(now())
              and is_state('input_boolean.bsb_dhw_calendar_enabled', 'on')
              and is_number(error.split(' - ')[0]) and error.split(' - ')[0] | int(-1) == 0
-             and 40 <= target_temperature <= 60 }}
+             and 35 <= target_temperature <= [60,state_attr('sensor.bsb_dhw_maximum_readback','payload') | float(0)] | min }}
     - if: '{{ may_heat }}'
       then:
       - if: |-
@@ -579,6 +721,372 @@ script:
     - action: script.bsb_dhw_calendar_reconcile
       data:
         hourly_check: true
+  bsb_dhw_once_finish:
+    alias: BSB stop and restore owned one-time water cycle
+    mode: single
+    fields:
+      reason:
+        description: Why the owned cycle ended
+    sequence:
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.bsb_dhw_stop_pending
+    - action: homeassistant.save_persistent_states
+    - action: script.bsb_dhw_write_checked
+      data:
+        parameter: 1600
+        value: '0'
+      response_variable: off_result
+    - if: '{{ not off_result.ok }}'
+      then:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.bsb_dhw_once_status
+        data:
+          value: One-time cycle Off NOT confirmed; retrying. Check boiler/network.
+      - action: persistent_notification.create
+        data:
+          notification_id: bsb_dhw_once_cleanup
+          title: One-time water cycle stop unconfirmed
+          message: Home Assistant could not confirm DHW Off. It retains the cycle journal and retries.
+      - stop: Keep owned journal until Off acknowledgement
+    - variables:
+        read_at: '{{ as_timestamp(now()) }}'
+    - repeat:
+        for_each:
+        - 13/1610
+        - 13/1620
+        - 13/1614
+        sequence:
+        - action: mqtt.publish
+          continue_on_error: true
+          data:
+            topic: BSB-LAN/0/{{ repeat.item }}/poll
+            payload: ''
+            retain: false
+    - wait_template: |-
+        {{ state_attr('sensor.bsb_dhw_target_readback','received_at') | float(0) >= read_at
+           and state_attr('sensor.bsb_dhw_release_readback','received_at') | float(0) >= read_at
+           and state_attr('sensor.bsb_dhw_maximum_readback','received_at') | float(0) >= read_at }}
+      timeout: 00:00:15
+      continue_on_timeout: true
+    - if: '{{ not wait.completed }}'
+      then:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.bsb_dhw_once_status
+        data:
+          value: DHW Off confirmed; fresh settings needed for restoration. Cleanup is retrying.
+      - stop: Do not restore using stale settings
+    - variables:
+        original_target: '{{ states("input_number.bsb_dhw_once_original_target") | float(0) }}'
+        cycle_target: '{{ states("input_number.bsb_dhw_once_cycle_target") | float(0) }}'
+        current_target: '{{ state_attr("sensor.bsb_dhw_target_readback","payload") | float(-1) }}'
+        restore_target_allowed: |-
+          {{ (current_target - cycle_target) | abs < 0.11
+             and 35 <= original_target <= [60, state_attr('sensor.bsb_dhw_maximum_readback','payload') | float(0)] | min }}
+        target_result:
+          ok: true
+        release_result:
+          ok: true
+    - if: '{{ restore_target_allowed }}'
+      then:
+      - action: script.bsb_dhw_write_checked
+        data:
+          parameter: 1610
+          value: '{{ original_target }}'
+        response_variable: target_result
+    - if: '{{ state_attr(''sensor.bsb_dhw_release_readback'',''payload'') == ''0 - 24h/day'' }}'
+      then:
+      - action: script.bsb_dhw_write_checked
+        data:
+          parameter: 1620
+          value: '{{ states("input_number.bsb_dhw_once_original_release") | int(-1) | string }}'
+        response_variable: release_result
+    - if: '{{ not target_result.ok or not release_result.ok }}'
+      then:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.bsb_dhw_once_status
+        data:
+          value: DHW Off confirmed; original settings not yet restored. Cleanup is retrying.
+      - stop: Keep owned journal for restoration retry
+    - action: input_boolean.turn_off
+      target:
+        entity_id:
+        - input_boolean.bsb_dhw_once_active
+        - input_boolean.bsb_dhw_stop_pending
+        - input_boolean.bsb_dhw_topup_recovery_pending
+    - action: persistent_notification.dismiss
+      data:
+        notification_id: bsb_dhw_once_cleanup
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.bsb_dhw_once_status
+      data:
+        value: '{{ now().strftime(''%H:%M'') }} · {{ reason }}; DHW Off confirmed. Original owned settings restored
+          where still permitted. Calendar resumes if enabled.'
+    - action: homeassistant.save_persistent_states
+  bsb_dhw_once_control:
+    alias: BSB owned one-time water control
+    mode: single
+    fields:
+      operation:
+        description: start, stop or monitor
+      requested_target:
+        description: Requested water target
+      force_stop:
+        description: Master pause or stop
+      recover:
+        description: Cancel interrupted cycle after restart
+    sequence:
+    - variables:
+        op: '{{ operation | default("monitor") }}'
+        active: '{{ is_state("input_boolean.bsb_dhw_once_active","on") }}'
+        finishing: |-
+          {{ active and (op == 'stop' or force_stop | default(false) | bool
+             or recover | default(false) | bool
+             or is_state('input_boolean.bsb_dhw_stop_pending','on')
+             or state_attr('input_datetime.bsb_dhw_once_deadline','timestamp') | float(0) <= as_timestamp(now())) }}
+    - if: '{{ finishing }}'
+      then:
+      - variables:
+          finish_reason: '{% if recover | default(false) | bool %}Interrupted by server restart {% elif op == ''stop''
+            or force_stop | default(false) | bool %}Stopped manually {% elif is_state(''input_boolean.bsb_dhw_stop_pending'',''on'')
+            %}Cleanup retry {% else %}Time limit reached; target not confirmed{% endif %}'
+      - action: script.bsb_dhw_once_finish
+        data:
+          reason: '{{ finish_reason | trim }}'
+      - stop: Owned cycle cleanup handled
+    - if: '{{ op == ''start'' and active }}'
+      then:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.bsb_dhw_once_status
+        data:
+          value: A one-time cycle is already active. Stop it before starting another; deadline unchanged.
+      - stop: Duplicate manual start rejected
+    - if: '{{ not active and op != "start" }}'
+      then:
+      - stop: No owned one-time cycle
+    - variables:
+        read_at: '{{ as_timestamp(now()) }}'
+        target: '{{ requested_target | default(states("input_number.bsb_dhw_once_target")) | float(-1) if op ==
+          "start" else states("input_number.bsb_dhw_once_cycle_target") | float(-1) }}'
+    - repeat:
+        for_each:
+        - 13/1600
+        - 13/1610
+        - 13/1620
+        - 13/1614
+        - 37/8830
+        - 31/6700
+        - 34/8003
+        sequence:
+        - action: mqtt.publish
+          continue_on_error: true
+          data:
+            topic: BSB-LAN/0/{{ repeat.item }}/poll
+            payload: ''
+            retain: false
+    - wait_template: |-
+        {% set receipts = ['mode','target','release','maximum','temperature','error','status'] %} {% set ns=namespace(ok=true) %} {% for name in receipts %}
+          {% if state_attr('sensor.bsb_dhw_' ~ name ~ '_readback','received_at') | float(0) < read_at %}
+            {% set ns.ok=false %}
+          {% endif %}
+        {% endfor %} {{ ns.ok }}
+      timeout: 00:00:15
+      continue_on_timeout: true
+    - variables:
+        raw_temperature: '{{ state_attr("sensor.bsb_dhw_temperature_readback","payload") | default("",true) | string
+          }}'
+        raw_error: '{{ state_attr("sensor.bsb_dhw_error_readback","payload") | default("",true) | string }}'
+        raw_status: '{{ state_attr("sensor.bsb_dhw_status_readback","payload") | default("",true) | string }}'
+        feedback_ok: |-
+          {{ wait.completed and is_number(raw_temperature) and 0 <= raw_temperature | float <= 100
+             and is_number(raw_error.split(' - ')[0]) and raw_error.split(' - ')[0] | int(-1) == 0 }}
+        ceiling: '{{ [60, state_attr("sensor.bsb_dhw_maximum_readback","payload") | float(0)] | min }}'
+        target_ok: '{{ 35 <= target <= ceiling }}'
+        native_hygiene_active: '{{ raw_status.split(" - ")[0] | int(-1) in [85,87,92,95,98,237,250] }}'
+        current_target: '{{ state_attr("sensor.bsb_dhw_target_readback","payload") | float(-1) }}'
+        current_release: '{{ state_attr("sensor.bsb_dhw_release_readback","payload") | default("",true) | string
+          }}'
+        release_number: '{{ current_release.split(" - ")[0] | int(-1) }}'
+        external_change: |-
+          {{ active and wait.completed and
+             ((current_target - target) | abs >= 0.11 or current_release != '0 - 24h/day'
+              or state_attr('sensor.bsb_dhw_mode_readback','payload') != '1 - On') }}
+    - if: '{{ active and (external_change or native_hygiene_active) }}'
+      then:
+      - action: input_boolean.turn_off
+        target:
+          entity_id:
+          - input_boolean.bsb_dhw_once_active
+          - input_boolean.bsb_dhw_calendar_enabled
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.bsb_dhw_once_status
+        data:
+          value: '{{ ''Native hygiene cycle has priority; one-time control released and calendar paused.'' if native_hygiene_active
+            else ''External DHW settings changed. Released the one-time cycle and paused the calendar; external
+            settings preserved.'' }}'
+      - action: homeassistant.save_persistent_states
+      - stop: Do not overwrite external controls
+    - if: '{{ active and (not feedback_ok or not target_ok or raw_temperature | float(-1) >= target) }}'
+      then:
+      - action: script.bsb_dhw_once_finish
+        data:
+          reason: '{% if not feedback_ok %}Missing feedback or boiler error {% elif not target_ok %}Target no longer
+            permitted {% elif native_hygiene_active %}Native hygiene cycle detected {% else %}Target reached{% endif
+            %}'
+      - stop: Owned cycle ended
+    - if: '{{ active }}'
+      then:
+      - stop: One-time request still active; deadline unchanged
+    - if: '{{ not feedback_ok or not target_ok or native_hygiene_active or release_number not in [0,1,2] or not
+        35 <= current_target <= 60 }}'
+      then:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.bsb_dhw_once_status
+        data:
+          value: '{% if not feedback_ok %}Start blocked: missing fresh feedback or boiler error. {% elif native_hygiene_active
+            %}Start blocked: native hygiene cycle has priority. {% elif not target_ok %}Start blocked: normal DHW
+            heating permits 35–{{ ceiling | round(0) }}°C; requested {{ target | round(1) }}°C. {% else %}Start
+            blocked: existing settings cannot be safely journalled.{% endif %}'
+      - stop: Invalid request sends no boiler write
+    - if: '{{ raw_temperature | float(-1) >= target }}'
+      then:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.bsb_dhw_once_status
+        data:
+          value: Already at or above {{ target | round(0) }}°C; no one-time heating needed.
+      - stop: Already warm; no setting changed
+    - if: '{{ is_state(''input_boolean.bsb_dhw_topup_active'',''on'') }}'
+      then:
+      - action: script.bsb_dhw_finish_topup
+        data:
+          reason: Manual one-time cycle taking priority
+        response_variable: prior_stop
+      - if: '{{ not prior_stop.ok }}'
+        then:
+        - stop: Cannot take over an unconfirmed top-up
+    - if: '{{ is_state(''input_boolean.bsb_dhw_stop_pending'',''on'') }}'
+      then:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.bsb_dhw_once_status
+        data:
+          value: 'Start blocked: previous DHW stop awaiting confirmation.'
+      - stop: Previous stop unconfirmed
+    - action: input_number.set_value
+      target:
+        entity_id: input_number.bsb_dhw_once_original_target
+      data:
+        value: '{{ current_target }}'
+    - action: input_number.set_value
+      target:
+        entity_id: input_number.bsb_dhw_once_original_release
+      data:
+        value: '{{ release_number }}'
+    - action: input_number.set_value
+      target:
+        entity_id: input_number.bsb_dhw_once_cycle_target
+      data:
+        value: '{{ target }}'
+    - action: input_datetime.set_datetime
+      target:
+        entity_id: input_datetime.bsb_dhw_once_deadline
+      data:
+        timestamp: '{{ as_timestamp(now()) + [1,[120,states("input_number.bsb_dhw_once_minutes") | float(60)] |
+          min] | max * 60 }}'
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.bsb_dhw_once_active
+    - action: homeassistant.save_persistent_states
+    - action: script.bsb_dhw_write_checked
+      data:
+        parameter: 1600
+        value: '0'
+      response_variable: off_result
+    - if: '{{ not off_result.ok }}'
+      then:
+      - action: script.bsb_dhw_once_finish
+        data:
+          reason: 'Start cancelled: Off not confirmed'
+      - stop: Off precondition failed
+    - action: script.bsb_dhw_write_checked
+      data:
+        parameter: 1620
+        value: '0'
+      response_variable: release_ack
+    - action: script.bsb_dhw_write_checked
+      data:
+        parameter: 1610
+        value: '{{ target }}'
+      response_variable: target_ack
+    - if: |-
+        {{ not release_ack.ok or not target_ack.ok
+           or state_attr('input_datetime.bsb_dhw_once_deadline','timestamp') | float(0) <= as_timestamp(now()) }}
+      then:
+      - action: script.bsb_dhw_once_finish
+        data:
+          reason: 'Start cancelled: setting not confirmed or deadline expired'
+      - stop: Settings not verified
+    - action: script.bsb_dhw_write_checked
+      data:
+        parameter: 1600
+        value: '1'
+      response_variable: on_ack
+    - if: '{{ not on_ack.ok }}'
+      then:
+      - action: script.bsb_dhw_once_finish
+        data:
+          reason: 'Start cancelled: On not confirmed'
+      - stop: Native On not verified
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.bsb_dhw_once_status
+      data:
+        value: One-time DHW request toward {{ target | round(0) }}°C; ends at target or {{ state_attr('input_datetime.bsb_dhw_once_deadline','timestamp')
+          | timestamp_custom('%H:%M',true) }}. Burner follows native demand.
+  bsb_dhw_heat_once:
+    alias: Heat water to selected target once
+    mode: single
+    fields:
+      target:
+        description: Optional preset water target
+    sequence:
+    - action: script.bsb_dhw_calendar_reconcile
+      data:
+        manual_action: start
+        manual_target: '{{ target | default(states("input_number.bsb_dhw_once_target")) }}'
+  bsb_dhw_stop_once:
+    alias: Stop one-time water heating
+    mode: single
+    sequence:
+    - action: script.bsb_dhw_calendar_reconcile
+      data:
+        manual_action: stop
+  bsb_dhw_refresh_hygiene_readings:
+    alias: Read native hot-water hygiene settings
+    mode: single
+    sequence:
+    - repeat:
+        for_each:
+        - 1640
+        - 1642
+        - 1644
+        - 1645
+        - 1646
+        sequence:
+        - action: mqtt.publish
+          continue_on_error: true
+          data:
+            topic: BSB-LAN/0/13/{{ repeat.item }}/poll
+            payload: ''
+            retain: false
 automation:
 - id: bsb_dhw_calendar_reconcile
   alias: BSB daily DHW calendar control
@@ -617,6 +1125,9 @@ automation:
     from: 'on'
     to: 'off'
     id: topup_pause
+  - trigger: time
+    at: input_datetime.bsb_dhw_once_deadline
+    id: once_deadline
   actions:
   - action: script.bsb_dhw_calendar_reconcile
     data:
@@ -631,13 +1142,27 @@ automation:
   - trigger: time_pattern
     seconds: /10
   conditions:
-  - condition: state
-    entity_id: input_boolean.bsb_dhw_topup_active
-    state: 'on'
+  - condition: template
+    value_template: '{{ is_state(''input_boolean.bsb_dhw_topup_active'',''on'') or is_state(''input_boolean.bsb_dhw_once_active'',''on'')
+      }}'
   actions:
   - action: script.bsb_dhw_calendar_reconcile
+- id: bsb_dhw_hygiene_readings
+  alias: Refresh native hygiene settings (read only)
+  mode: single
+  triggers:
+  - trigger: time_pattern
+    minutes: /5
+  - trigger: homeassistant
+    event: start
+  actions:
+  - action: script.bsb_dhw_refresh_hygiene_readings
 input_datetime:
   bsb_dhw_topup_deadline:
     name: Hot-water top-up deadline
+    has_date: true
+    has_time: true
+  bsb_dhw_once_deadline:
+    name: One-time water cycle deadline
     has_date: true
     has_time: true

@@ -134,7 +134,7 @@
                 {
                   "type": "button",
                   "entity": "sensor.bsb_lan_00_37_diagnostics_consumer_8830_dhw_temperature_actual_value_top_b3",
-                  "name": "DHW",
+                  "name": "Store",
                   "icon": "mdi:water-thermometer",
                   "show_state": true,
                   "icon_height": "42px",
@@ -363,7 +363,7 @@
                 },
                 {
                   "entity": "sensor.bsb_lan_00_37_diagnostics_consumer_8830_dhw_temperature_actual_value_top_b3",
-                  "name": "Measured hot water"
+                  "name": "Store probe · B3"
                 },
                 {
                   "entity": "select.bsb_lan_00_13_dhw_1600_operating_mode",
@@ -373,7 +373,7 @@
             },
             {
               "type": "markdown",
-              "content": "{{ states('input_text.bsb_dhw_calendar_status') }}\n\n**Hourly top-ups**\n{% if not is_state('input_boolean.bsb_dhw_calendar_enabled', 'on') %}\nPaused with the DHW calendar.\n{% elif not is_state('input_boolean.bsb_dhw_topup_enabled', 'on') %}\nDisabled. Main charging periods still apply.\n{% else %}\n{{ states('input_text.bsb_dhw_topup_status') if states('input_text.bsb_dhw_topup_status') not in ['', 'unknown', 'unavailable'] else 'Waiting for the next full-hour check.' }}\n{% endif %}\n\nChecks at every full hour, including overnight. Outside main periods, starts only below **{{ (states('input_number.bsb_dhw_calendar_target') | float(45) - 2) | round(0) }}°C**. Stops at the target or after **five minutes**, then waits until the next hour. A missing temperature reading blocks the top-up. **Check top-up now** uses the same limit of one attempt per hour.\n\n**Daily main charging periods**\n- **06:00–07:30** · Preheat for 07:00.\n- **16:00–18:00** · Afternoon hot water.\n\nMain periods take priority. Outside them, DHW is Off except during an active top-up. The measured DHW sensor controls the target; the room-heating return cutoff is separate.\n\n**Pause & stop DHW** pauses both schedules and confirms Off before manual control. Restart cancels interrupted top-ups. Timed stops need Home Assistant and its connection; the boiler may continue room heating or pump overrun.\n\nThe heating buffer and stored tap water are different. Confirm the system's hot-water hygiene settings; a 45°C target alone does not provide Legionella control.\n\n**Luna Platinum+: Eco mode is not used.**\n[Edit DHW heating events](/calendar)"
+              "content": "{{ states('input_text.bsb_dhw_calendar_status') }}\n\n**Hourly top-ups**\n{% if not is_state('input_boolean.bsb_dhw_calendar_enabled', 'on') %}\nPaused with the DHW calendar.\n{% elif not is_state('input_boolean.bsb_dhw_topup_enabled', 'on') %}\nDisabled. Main charging periods still apply.\n{% else %}\n{{ states('input_text.bsb_dhw_topup_status') if states('input_text.bsb_dhw_topup_status') not in ['', 'unknown', 'unavailable'] else 'Waiting for the next full-hour check.' }}\n{% endif %}\n\nChecks at every full hour, including overnight. Outside main periods, starts only below **{{ (states('input_number.bsb_dhw_calendar_target') | float(45) - 2) | round(0) }}°C**. Stops at the target or after **five minutes**, then waits until the next hour. A missing temperature reading blocks the top-up. **Check top-up now** uses the same limit of one attempt per hour.\n\n**Daily main charging periods**\n- **06:00–07:30** · Preheat for 07:00.\n- **16:00–18:00** · Afternoon hot water.\n\nMain periods take priority. Outside them, DHW is Off except during an active top-up. The boiler's B3 store probe controls the target; the room-heating return cutoff is separate.\n\n**Pause & stop DHW** pauses both schedules and confirms Off before manual control. Restart cancels interrupted top-ups. Timed stops need Home Assistant and its connection; the boiler may continue room heating or pump overrun.\n\nYour PT500CF holds heating water; tap water passes through its separate stainless coil. B3 is a store probe, not a tap-water measurement.\n\n**Luna Platinum+: Eco mode is not used.**\n[Edit DHW heating events](/calendar)"
             },
             {
               "type": "button",
@@ -417,6 +417,10 @@
               }
             },
             {
+              "type": "markdown",
+              "content": "**Weekly high-temperature cycle · Not enabled**\nPrepared for Monday 06:00, using the boiler's separate 65°C hygiene target and existing 10-minute dwell setting. Mixing protection and treatment of the potable-water coil still need confirmation; the proposal has not been applied.\n\nNative function: **{{ state_attr('sensor.bsb_hygiene_function_readback','payload') | default('Waiting for fresh reading', true) }}**\nNative hygiene target: {{ state_attr('sensor.bsb_hygiene_target_readback','payload') | default('Unknown', true) }}°C · dwell: {{ state_attr('sensor.bsb_hygiene_dwell_readback','payload') | default('Unknown', true) }} min.\n\nThe Honeywell motorised valve in the photos does not establish a thermostatic tap-water mixer. [Heating map](/bms-overview/heating-map)"
+            },
+            {
               "type": "calendar",
               "entities": [
                 "calendar.dhw_heating"
@@ -424,6 +428,150 @@
               "initial_view": "dayGridDay",
               "show_add_event": true,
               "add_event_style": "header"
+            }
+          ]
+        },
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "Hot-water boost · Once",
+              "icon": "mdi:water-boiler"
+            },
+            {
+              "type": "entities",
+              "show_header_toggle": false,
+              "entities": [
+                {
+                  "entity": "input_number.bsb_dhw_once_target",
+                  "name": "Requested target"
+                },
+                {
+                  "entity": "input_number.bsb_dhw_once_minutes",
+                  "name": "Maximum duration"
+                },
+                {
+                  "entity": "sensor.bsb_normal_dhw_target_ceiling",
+                  "name": "Normal boiler target ceiling"
+                },
+                {
+                  "entity": "sensor.bsb_lan_00_37_diagnostics_consumer_8830_dhw_temperature_actual_value_top_b3",
+                  "name": "Store probe · B3"
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "columns": 2,
+              "square": false,
+              "cards": [
+                {
+                  "type": "button",
+                  "name": "Heat once",
+                  "icon": "mdi:water-boiler",
+                  "show_state": false,
+                  "tap_action": {
+                    "action": "perform-action",
+                    "perform_action": "script.bsb_dhw_heat_once"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "name": "Stop one-time cycle",
+                  "icon": "mdi:stop-circle-outline",
+                  "show_state": false,
+                  "tap_action": {
+                    "action": "perform-action",
+                    "perform_action": "script.bsb_dhw_stop_once"
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "columns": 4,
+              "square": false,
+              "cards": [
+                {
+                  "type": "button",
+                  "name": "45°C once",
+                  "icon": "mdi:water-thermometer",
+                  "show_state": false,
+                  "tap_action": {
+                    "action": "perform-action",
+                    "perform_action": "script.bsb_dhw_heat_once",
+                    "data": {
+                      "target": 45
+                    }
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "name": "50°C once",
+                  "icon": "mdi:water-thermometer",
+                  "show_state": false,
+                  "tap_action": {
+                    "action": "perform-action",
+                    "perform_action": "script.bsb_dhw_heat_once",
+                    "data": {
+                      "target": 50
+                    }
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "name": "55°C once",
+                  "icon": "mdi:water-thermometer",
+                  "show_state": false,
+                  "tap_action": {
+                    "action": "perform-action",
+                    "perform_action": "script.bsb_dhw_heat_once",
+                    "data": {
+                      "target": 55
+                    }
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "button",
+                  "name": "60°C once",
+                  "icon": "mdi:water-thermometer",
+                  "show_state": false,
+                  "tap_action": {
+                    "action": "perform-action",
+                    "perform_action": "script.bsb_dhw_heat_once",
+                    "data": {
+                      "target": 60
+                    }
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "markdown",
+              "content": "{{ states('input_text.bsb_dhw_once_status') }}\n\nNormal heating: **35–{{ states('sensor.bsb_normal_dhw_target_ceiling') }}°C**. Requests outside this limit are blocked. Presets start immediately."
+            },
+            {
+              "type": "markdown",
+              "content": "Stops at the B3 target or saved timeout. Calendar and hourly top-ups wait during the cycle, then resume if enabled. Duplicate starts do not extend the deadline. Restart cancels an interrupted cycle; external setting changes release it and pause the calendar.\n\nThe request input accepts 20–75°C; the current native ceiling limits normal heating to 60°C. Native boiler control determines burner operation. B3 is a store probe, not tap temperature. Timed stops need Home Assistant and its connection."
             }
           ]
         },
@@ -702,6 +850,76 @@
                   "name": "Hot water"
                 }
               ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Heating map",
+      "path": "heating-map",
+      "icon": "mdi:map-outline",
+      "type": "sections",
+      "max_columns": 2,
+      "sections": [
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "Heating system · Functional map",
+              "icon": "mdi:map-outline"
+            },
+            {
+              "type": "picture",
+              "image": "/local/bsb-lan/system-map.svg?v=20261014-2",
+              "tap_action": {
+                "action": "url",
+                "url_path": "/local/bsb-lan/system-map.svg?v=20261014-2"
+              },
+              "hold_action": {
+                "action": "none"
+              }
+            },
+            {
+              "type": "markdown",
+              "content": "<a href=\"/local/bsb-lan/system-map.svg?v=20261014-2\" target=\"_blank\" rel=\"noopener\">Open larger map</a> · Tap the map to enlarge. **Solid lines** show the tank's separate internal fluid paths; **dashed lines** are inferred house connections that need tracing. This is an identification map, not a wiring or valve-operation plan.\n\n**500 L is heating water.** Hot tap water runs through the separate stainless coil. The visible Honeywell VC4013 is a motorised routing valve; a thermostatic tap-water mixer has not been identified. The black four-port unit is a likely hydraulic separator, with its model still unverified.\n\n[HAJDU tank description](https://hajdurt.hu/termek/hajdu-pt-cf-erp/42) · [Back to heating controls](/bms-overview/overview)"
+            }
+          ]
+        },
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "Live readings",
+              "icon": "mdi:thermometer"
+            },
+            {
+              "type": "entities",
+              "show_header_toggle": false,
+              "entities": [
+                {
+                  "entity": "sensor.bsb_lan_00_36_diagnostics_producer_8310_boiler_temp_actual_value",
+                  "name": "Boiler water"
+                },
+                {
+                  "entity": "sensor.bsb_lan_00_36_diagnostics_producer_8314_return_temp_actual_value",
+                  "name": "Water returning to boiler"
+                },
+                {
+                  "entity": "sensor.bsb_lan_00_37_diagnostics_consumer_8830_dhw_temperature_actual_value_top_b3",
+                  "name": "Store probe · B3"
+                },
+                {
+                  "entity": "sensor.bsb_lan_00_34_status_8003_status_dhw",
+                  "name": "Boiler DHW / store-charge status"
+                }
+              ]
+            },
+            {
+              "type": "markdown",
+              "content": "**Still to identify**\n- The exact Honeywell A/B/AB branch destinations and who controls it.\n- The B3 probe's physical port and which store layers it represents.\n- The tap-water outlet path, mixing valve and any circulation loop.\n- Each actual radiator/room-heating zone.\n\nOpening this map sends no heating or valve command. The blue lever valves are isolation valves; their colour does not identify the water circuit."
             }
           ]
         }

@@ -30,6 +30,9 @@ def is_number(value):
 def render(template, **values):
     env = NativeEnvironment()
     env.globals.update(as_timestamp=timestamp, is_number=is_number)
+    env.filters['bool'] = lambda value,default=False: (
+        value if isinstance(value,bool) else
+        str(value).lower() in ['true','on','yes','1'] if value is not None else default)
     result = env.from_string(template).render(**values)
     # HA trims rendered whitespace before parsing native scalar values.
     if isinstance(result, str):
@@ -89,6 +92,8 @@ class DHWCalendarTests(unittest.TestCase):
 
     def test_no_space_heating_or_thermostat_writes(self):
         for node in all_nodes(PACKAGE):
+            if isinstance(node,dict) and 'response_variable' in node:
+                self.assertIsInstance(node['response_variable'],str)
             if isinstance(node,dict) and node.get('action') == 'script.bsb_dhw_write_checked':
                 self.assertIn(node['data']['parameter'],[1600,1610,1620])
         body=json.dumps(PACKAGE)
@@ -96,9 +101,11 @@ class DHWCalendarTests(unittest.TestCase):
             self.assertNotIn(forbidden,body)
         writer=PACKAGE['script']['bsb_dhw_write_checked']['sequence'][0]['variables']['valid']
         for p,value,expected in [(1600,'0',True),(1600,'1',True),(1600,'2',False),
-                                 (1620,'0',True),(1620,'2',False),(1610,'45',True),
+                                 (1620,'0',True),(1620,'2',True),(1610,'45',True),
                                  (1610,'80',False),(700,'1',False)]:
-            self.assertEqual(render(writer,p=p,value=value),expected)
+            now=datetime(2026,10,14,12,tzinfo=TZ)
+            self.assertEqual(render(writer,p=p,value=value,now=lambda:now,
+                state_attr=lambda entity,key:60 if key=='payload' else now.timestamp()),expected)
 
     def test_write_requires_fresh_precise_matching_reply(self):
         writer=PACKAGE['script']['bsb_dhw_write_checked']['sequence']
@@ -138,6 +145,7 @@ class DHWCalendarTests(unittest.TestCase):
             main_window_active=False, calendar_ok=True, feedback_ok=True,
             temperature_ok=True, actual_temperature=42.9, target_temperature=45,
             hour_slot='101', topup_opportunity=True,
+            state_attr=lambda entity,key:60 if key=='payload' else 1000,
             is_state=lambda entity, value: states.get(entity) == value,
             states=lambda entity: states.get(entity, 'unknown'))
         context.update(changes)
@@ -237,7 +245,8 @@ class DHWCalendarTests(unittest.TestCase):
         self.assertIn({'trigger':'time_pattern','minutes':'0','seconds':'0','id':'hourly'},triggers)
         self.assertIn({'trigger':'time','at':'input_datetime.bsb_dhw_topup_deadline','id':'deadline'},triggers)
         guard=PACKAGE['automation'][1]
-        self.assertEqual(guard['conditions'][0]['entity_id'],'input_boolean.bsb_dhw_topup_active')
+        self.assertIn('bsb_dhw_topup_active',guard['conditions'][0]['value_template'])
+        self.assertIn('bsb_dhw_once_active',guard['conditions'][0]['value_template'])
         self.assertEqual(guard['triggers'][0]['seconds'],'/10')
         data=PACKAGE['automation'][0]['actions'][0]['data']
         self.assertTrue(render(data['recover'],trigger=SimpleNamespace(platform='homeassistant')))
@@ -279,6 +288,89 @@ class DHWCalendarTests(unittest.TestCase):
                          dict(entity_states={'input_number.bsb_dhw_calendar_target':'46'})]:
             self.assertFalse(render(final,**self.context(now=lambda:now,
                 window_end=override.pop('window_end',now.timestamp()+1),**override)))
+
+    def once_variables(self):
+        return {key:value for node in PACKAGE['script']['bsb_dhw_once_control']['sequence']
+                for key,value in node.get('variables',{}).items()}
+
+    def test_normal_writer_rejects_requested_extremes_stale_or_lower_oem_ceiling(self):
+        writer=PACKAGE['script']['bsb_dhw_write_checked']['sequence'][0]['variables']['valid']
+        now=datetime(2026,10,14,12,tzinfo=TZ)
+        for target,ceiling,age,expected in [(20,60,0,False),(34,60,0,False),(35,60,0,True),
+            (60,60,0,True),(61,60,0,False),(75,60,0,False),(55,50,0,False),(45,60,31,False)]:
+            self.assertEqual(render(writer,p=1610,value=str(target),now=lambda:now,
+                state_attr=lambda entity,key:ceiling if key=='payload' else now.timestamp()-age),expected)
+
+    def test_once_target_checks_live_ceiling_not_requested_ui_range(self):
+        valid=self.once_variables()['target_ok']
+        for target,ceiling,expected in [(20,60,False),(35,60,True),(60,60,True),(75,60,False),
+                                      (50,45,False),(45,45,True),(45,0,False)]:
+            self.assertEqual(render(valid,target=target,ceiling=ceiling),expected)
+        self.assertEqual(PACKAGE['input_number']['bsb_dhw_once_target']['min'],20)
+        self.assertEqual(PACKAGE['input_number']['bsb_dhw_once_target']['max'],75)
+
+    def test_manual_start_routes_before_calendar_gate_and_suspends_automatic_writes(self):
+        route=self.controller[1]
+        for action,active,expected in [('start',False,True),('stop',False,True),('',True,True),('',False,False)]:
+            self.assertEqual(render(route['if'],manual_action=action,
+                is_state=lambda entity,value:active if entity=='input_boolean.bsb_dhw_once_active' else False),expected)
+        self.assertEqual(route['then'][0]['action'],'script.bsb_dhw_once_control')
+        self.assertIn('stop',route['then'][-1])
+        self.assertEqual(self.controller[2]['condition'],'template')
+
+    def test_once_deadline_duration_is_snapshot_not_a_sliding_timeout(self):
+        seq=PACKAGE['script']['bsb_dhw_once_control']['sequence']
+        deadline=next(n for n in seq if n.get('action')=='input_datetime.set_datetime')
+        now=datetime(2026,10,14,12,tzinfo=TZ)
+        for minutes,seconds in [(1,60),(60,3600),(120,7200),(999,7200),(0,60)]:
+            self.assertEqual(render(deadline['data']['timestamp'],now=lambda:now,
+                states=lambda entity:minutes),now.timestamp()+seconds)
+        journal=next(i for i,n in enumerate(seq) if n.get('action')=='input_boolean.turn_on')
+        self.assertEqual(seq[journal+1]['action'],'homeassistant.save_persistent_states')
+        self.assertEqual(seq[journal+2]['action'],'script.bsb_dhw_write_checked')
+        duplicate=next(n for n in seq if n.get('if')=="{{ op == 'start' and active }}")
+        self.assertIn('stop',duplicate['then'][-1])
+
+    def test_once_stop_pause_restart_and_timeout_do_not_wait_for_temperature(self):
+        seq=PACKAGE['script']['bsb_dhw_once_control']['sequence']
+        finishing=seq[0]['variables']['finishing']
+        now=datetime(2026,10,14,12,tzinfo=TZ)
+        context=dict(active=True,op='monitor',force_stop=False,recover=False,now=lambda:now,
+            is_state=lambda entity,value:False,state_attr=lambda entity,key:now.timestamp()+60)
+        self.assertFalse(render(finishing,**context))
+        for changed in [{'op':'stop'},{'force_stop':True},{'recover':True},
+                        {'state_attr':lambda entity,key:now.timestamp()}]:
+            self.assertTrue(render(finishing,**(context|changed)))
+        self.assertEqual(seq[1]['then'][1]['action'],'script.bsb_dhw_once_finish')
+        self.assertIn('stop',seq[1]['then'][-1])
+
+    def test_once_restoration_changes_only_owned_still_permitted_target(self):
+        seq=PACKAGE['script']['bsb_dhw_once_finish']['sequence']
+        allowed=next(n['variables']['restore_target_allowed'] for n in seq
+                     if 'restore_target_allowed' in n.get('variables',{}))
+        for current,cycle,original,ceiling,expected in [(45,45,60,60,True),(50,45,60,60,False),
+                                                      (45,45,60,50,False),(45,45,75,60,False)]:
+            self.assertEqual(render(allowed,current_target=current,cycle_target=cycle,
+                original_target=original,state_attr=lambda entity,key:ceiling),expected)
+        self.assertEqual(seq[2]['data'],{'parameter':1600,'value':'0'})
+        self.assertEqual(seq[3]['then'][-1]['stop'],'Keep owned journal until Off acknowledgement')
+
+    def test_once_external_or_native_hygiene_controls_are_preserved(self):
+        seq=PACKAGE['script']['bsb_dhw_once_control']['sequence']
+        release=next(n for n in seq if n.get('if')=='{{ active and (external_change or native_hygiene_active) }}')
+        self.assertFalse(any(n.get('action')=='script.bsb_dhw_write_checked' for n in release['then']))
+        self.assertIn('bsb_dhw_calendar_enabled',json.dumps(release['then']))
+        hygiene=self.once_variables()['native_hygiene_active']
+        self.assertTrue(render(hygiene,raw_status='95 - Charging, legionella setpoint'))
+        self.assertFalse(render(hygiene,raw_status='35 - Charging, nominal setpoint'))
+
+    def test_once_unknown_temperature_and_boiler_error_block_start(self):
+        feedback=self.once_variables()['feedback_ok']
+        for complete,temp,error,expected in [(True,'40','0 - No error',True),
+            (False,'40','0 - No error',False),(True,'---','0 - No error',False),
+            (True,'40','unknown',False),(True,'40','10 - Error',False)]:
+            self.assertEqual(render(feedback,wait=SimpleNamespace(completed=complete),
+                raw_temperature=temp,raw_error=error),expected)
 
 if __name__ == '__main__':
     unittest.main()

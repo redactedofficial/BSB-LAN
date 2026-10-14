@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1220" role="img" aria-labelledby="title desc">
+  <title id="title">Baxi, HAJDU buffer and solar: functional heating map</title>
+  <desc id="desc">The 500-litre HAJDU PT500CF contains heating water, a heat-input coil and a separate stainless coil for tap water. Photos identify a Baxi boiler, Wilo pump, solar station and Honeywell motorised valve. Dashed house connections are unverified. A tap-water thermostatic mixer has not been identified.</desc>
+  <defs>
+    <style>
+      text{font-family:Arial,sans-serif;fill:#e9edf2;font-size:24px}
+      .small{font-size:22px;fill:#cbd2dc}.title{font-size:29px;font-weight:700}
+      .node{fill:#202732;stroke:#626e7d;stroke-width:2}
+      .pipe{fill:none;stroke-width:4}.unknown{stroke-dasharray:10 8}
+      .heat{stroke:#ef9b61}.solar{stroke:#d8bf68}.cold{stroke:#75b9f1}.hot{stroke:#db9096}
+    </style>
+    <marker id="heat-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0L6 3L0 6" fill="#ef9b61"/></marker>
+    <marker id="cold-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0L6 3L0 6" fill="#75b9f1"/></marker>
+    <marker id="hot-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0L6 3L0 6" fill="#db9096"/></marker>
+  </defs>
+  <rect width="800" height="1220" fill="#141922"/>
+  <text x="28" y="40" class="title">Heating &amp; hot tap water</text>
+  <text x="28" y="72" class="small">Functional map · house pipe routes need tracing</text>
+
+  <path d="M170 246V294" class="pipe heat unknown" marker-end="url(#heat-arrow)"/>
+  <path d="M182 438V480" class="pipe heat unknown" marker-end="url(#heat-arrow)"/>
+  <path d="M320 536H393" class="pipe heat unknown" marker-end="url(#heat-arrow)"/>
+  <path d="M169 598V697" class="pipe heat unknown" marker-end="url(#heat-arrow)"/>
+  <path d="M393 778H326" class="pipe heat unknown" marker-end="url(#heat-arrow)"/>
+  <path d="M572 238V267" class="pipe solar unknown"/>
+  <path d="M715 335H768V759H693" class="pipe solar unknown"/>
+  <path d="M494 949V913H744V705H681" class="pipe cold unknown" marker-end="url(#cold-arrow)"/>
+  <path d="M681 577H741V845H663" class="pipe hot unknown" marker-end="url(#hot-arrow)"/>
+  <path d="M664 914V953" class="pipe hot unknown" marker-end="url(#hot-arrow)"/>
+  <path d="M165 854V971" class="pipe unknown" stroke="#a8b0bb"/>
+
+  <rect x="28" y="111" width="299" height="135" rx="12" class="node"/>
+  <text x="46" y="149" class="title">BAXI boiler</text>
+  <text x="46" y="186">Luna Platinum+ 1.32</text>
+  <text x="46" y="221" class="small">Heating / DHW requests</text>
+
+  <rect x="422" y="111" width="330" height="127" rx="12" class="node"/>
+  <text x="440" y="150" class="title">Solar collectors</text>
+  <text x="440" y="185" class="small">Roof circuit · not pictured</text>
+  <text x="440" y="219" class="small">Heat supplied to store coil</text>
+
+  <rect x="28" y="294" width="299" height="144" rx="12" class="node"/>
+  <text x="46" y="333">Black four-port unit</text>
+  <text x="46" y="369" class="small">Likely hydraulic separator</text>
+  <text x="46" y="402" class="small">Identification unverified</text>
+
+  <rect x="422" y="267" width="330" height="137" rx="12" class="node"/>
+  <text x="440" y="306">Solar pump station</text>
+  <text x="440" y="342" class="small">Steca TR A502 TT control</text>
+  <text x="440" y="377" class="small">Separate solar fluid circuit</text>
+
+  <rect x="28" y="480" width="299" height="118" rx="12" class="node"/>
+  <text x="46" y="516">Honeywell VC4013-11</text>
+  <text x="46" y="552" class="small">Motorised 3-way valve</text>
+  <text x="46" y="583" class="small">A/B/AB routing unverified</text>
+
+  <rect x="394" y="432" width="310" height="425" rx="42" fill="#28333b" stroke="#82949f" stroke-width="3"/>
+  <text x="417" y="470">HAJDU PT500CF</text>
+  <text x="417" y="508" class="title">500 L heating water</text>
+  <text x="417" y="542" class="small">Tap water stays separate</text>
+  <path d="M681 705H457Q437 705 437 689Q437 673 457 673H652Q671 673 671 657Q671 641 652 641H457Q437 641 437 625Q437 609 457 609H652Q671 609 671 593Q671 577 652 577H681" class="pipe cold"/>
+  <text x="417" y="733" class="small">Stainless tap-water coil</text>
+  <path d="M693 759H452Q432 759 432 775Q432 791 452 791H652Q672 791 672 806Q672 821 652 821H425" class="pipe solar"/>
+  <text x="417" y="843" class="small">Separate heat-input coil</text>
+
+  <rect x="28" y="630" width="299" height="59" rx="6" fill="#202732"/>
+  <text x="45" y="654" class="small">B3 store probe</text>
+  <text x="45" y="680" class="small">Port not identified</text>
+  <path d="M328 650H394" class="pipe unknown" stroke="#a8b0bb"/>
+
+  <rect x="28" y="697" width="299" height="157" rx="12" class="node"/>
+  <text x="46" y="734" class="title">Room heating</text>
+  <text x="46" y="771">Radiators / distribution</text>
+  <text x="46" y="808" class="small">Wilo pump seen in photos</text>
+  <text x="46" y="840" class="small">Exact zones not traced</text>
+
+  <rect x="572" y="845" width="158" height="69" rx="10" fill="#382e23" stroke="#b6a079" stroke-width="2" stroke-dasharray="8 5"/>
+  <text x="587" y="875">Tap mixer?</text>
+  <text x="587" y="903" class="small">Not identified</text>
+
+  <rect x="394" y="949" width="162" height="101" rx="12" class="node"/>
+  <text x="411" y="987">Cold mains</text>
+  <text x="411" y="1022" class="small">Potable water</text>
+  <rect x="588" y="953" width="162" height="97" rx="12" class="node"/>
+  <text x="605" y="991" class="small">Taps / shower</text>
+  <text x="605" y="1025" class="small">Not measured</text>
+
+  <ellipse cx="167" cy="999" rx="100" ry="57" fill="#69363c" stroke="#b57881" stroke-width="2"/>
+  <text x="70" y="991">Red expansion</text>
+  <text x="107" y="1025" class="small">vessel · likely</text>
+
+  <path d="M30 1100H103" class="pipe cold"/>
+  <text x="119" y="1108" class="small">Solid: tank construction / separate fluids</text>
+  <path d="M30 1141H103" class="pipe unknown" stroke="#bbc2cc"/>
+  <text x="119" y="1149" class="small">Dashed: inferred house connections</text>
+  <text x="28" y="1196" class="small">Identification aid. Not a wiring or valve-operation plan.</text>
+</svg>

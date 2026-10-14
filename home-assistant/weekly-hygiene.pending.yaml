@@ -1,0 +1,30 @@
+# Reviewable native-controller plan. NOT installed as an enabled heating job.
+# PT500CF heats tap water through a coil, not a 500 L potable-water reservoir.
+# Confirm the potable path, temperature protection and treatment procedure first.
+enabled: false
+timezone: Europe/Budapest
+weekday: Monday
+start_time: '06:00'
+native_parameters:
+  1640: 2   # Fixed weekday (enable LAST, after safeguards and schedule coexistence are verified)
+  1641: 7   # Periodicity, relevant if periodic mode is selected instead
+  1642: 1   # Monday
+  1644: '06:00'
+  1645: 65  # Existing native hygiene setpoint
+  1646: 10  # Existing native dwell setting; installer must confirm treatment adequacy
+preserve:
+  - 1614    # OEM normal DHW maximum: 60°C on this device
+  - 1647    # Existing native circulation setting
+  - 5030    # Native charging-time limitation
+  - 5050    # Native charging maximum
+  - 5051    # Native store maximum
+activation_checks:
+  tap_water_mixing_protection: unverified
+  potable_coil_and_circulation_path: unverified
+  treatment_temperature_and_hold_for_this_layout: unverified
+  calendar_must_not_interrupt_native_hygiene_charge: required
+verification:
+  - Native settings must be acknowledged and read back after each write
+  - Observe native hygiene charging and completion status with fresh temperature feedback
+  - Alert on unreachable temperature, missing feedback or incomplete hold
+  - A B3 buffer measurement cannot certify downstream tap-water pipework
