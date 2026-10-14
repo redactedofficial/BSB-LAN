@@ -290,7 +290,7 @@ script:
              and not is_state('input_boolean.bsb_dhw_topup_active', 'on')
              and is_state('input_boolean.bsb_dhw_calendar_enabled', 'on')
              and is_state('input_boolean.bsb_dhw_topup_enabled', 'on')
-             and states('input_text.bsb_dhw_topup_last_slot') != hour_slot }}
+             and states('input_text.bsb_dhw_topup_last_slot') | int(-1) != hour_slot | int(-2) }}
         topup_may_start: |-
           {{ topup_opportunity and calendar_ok and feedback_ok and temperature_ok
              and not is_state('input_boolean.bsb_dhw_stop_pending', 'on')
@@ -567,6 +567,15 @@ script:
         data:
           value: 'Check skipped: enable the DHW calendar and hourly top-ups first.'
       - stop: Top-ups are disabled; no boiler command sent
+    - if: '{{ not is_state(''input_boolean.bsb_dhw_topup_active'', ''on'') and states(''input_text.bsb_dhw_topup_last_slot'')
+        | int(-1) == (as_timestamp(now()) // 3600) | int }}'
+      then:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.bsb_dhw_topup_status
+        data:
+          value: Already checked this hour; no new DHW request. Next check at the next full hour.
+      - stop: One opportunity per hour; duplicate manual check skipped
     - action: script.bsb_dhw_calendar_reconcile
       data:
         hourly_check: true

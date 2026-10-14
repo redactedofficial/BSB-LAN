@@ -153,6 +153,15 @@ class DHWCalendarTests(unittest.TestCase):
                          dict(entity_states={'input_boolean.bsb_dhw_topup_enabled':'off'})]:
             with self.subTest(override=override):
                 self.assertFalse(render(template,**self.context(**override)))
+        # HA renders a numeric-looking template as an int, but input_text state is text.
+        # Exercise the actual rendered hour_slot rather than assuming its Python type.
+        now=datetime(2026,10,14,13,tzinfo=TZ)
+        slot=render(self.topup_templates()['hour_slot'],now=lambda:now)
+        self.assertIsInstance(slot,int)
+        self.assertFalse(render(template,**self.context(hour_slot=slot,
+            entity_states={'input_text.bsb_dhw_topup_last_slot':str(slot)})))
+        self.assertTrue(render(template,**self.context(hour_slot=slot+1,
+            entity_states={'input_text.bsb_dhw_topup_last_slot':str(slot)})))
 
     def test_two_degree_start_margin_and_invalid_feedback(self):
         template=self.topup_templates()['topup_may_start']
@@ -243,6 +252,19 @@ class DHWCalendarTests(unittest.TestCase):
             value=render(reason,now=lambda:now,
                          state_attr=lambda entity,key:now.timestamp()+offset)
             self.assertEqual('Five-minute limit reached' in value,timed_out)
+
+    def test_manual_duplicate_check_explains_skip_without_boiler_write(self):
+        check=PACKAGE['script']['bsb_dhw_topup_check']['sequence'][1]
+        now=datetime(2026,10,14,13,tzinfo=TZ)
+        slot=int(now.timestamp()//3600)
+        states={'input_text.bsb_dhw_topup_last_slot':str(slot),
+                'input_boolean.bsb_dhw_topup_active':'off'}
+        self.assertTrue(render(check['if'],now=lambda:now,
+            states=lambda entity:states.get(entity),
+            is_state=lambda entity,value:states.get(entity)==value))
+        self.assertEqual(check['then'][0]['action'],'input_text.set_value')
+        self.assertIn('no new DHW request',check['then'][0]['data']['value'])
+        self.assertIn('stop',check['then'][-1])
 
     def test_pause_target_change_and_deadline_rechecked_before_on(self):
         heat=next(n for n in self.controller if n.get('if')=='{{ may_heat }}')['then']
