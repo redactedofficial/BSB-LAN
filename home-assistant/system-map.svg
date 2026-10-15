@@ -65,7 +65,7 @@
 
   <rect x="28" y="630" width="299" height="59" rx="6" fill="#202732"/>
   <text x="45" y="654" class="small">B3 store probe</text>
-  <text x="45" y="680" class="small">Port not identified</text>
+  <text x="45" y="680" class="small">Tank pocket · owner traced</text>
   <path d="M328 650H394" class="pipe unknown" stroke="#a8b0bb"/>
 
   <rect x="28" y="697" width="299" height="157" rx="12" class="node"/>

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 580" role="img" aria-labelledby="title desc">
+  <title id="title">Tank probe and Delta thermostat control paths</title>
+  <desc id="desc">Owner-reported functional connections. A tank probe connects through the green pair to the boiler's likely B3 store input. The Delta radio receiver switches the external heating pump's live, with neutral separate, and sends a boiler heat request. A software boiler override cannot energise a pump whose Delta relay is off. This is not a terminal wiring diagram or electrical inspection.</desc>
+  <defs>
+    <style>
+      text{font-family:Arial,sans-serif;fill:#e9edf2;font-size:24px}
+      .small{font-size:21px;fill:#cbd2dc}.title{font-size:29px;font-weight:700}
+      .node{fill:#202732;stroke:#626e7d;stroke-width:2}
+      .signal{fill:none;stroke:#92c5af;stroke-width:4;stroke-dasharray:10 8}
+    </style>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0L6 3L0 6" fill="#92c5af"/></marker>
+  </defs>
+  <rect width="800" height="580" fill="#141922"/>
+  <text x="28" y="42" class="title">Controls · owner traced</text>
+  <text x="28" y="75" class="small">Functional links; no terminal wiring instructions</text>
+
+  <path d="M330 150H430" class="signal" marker-end="url(#arrow)"/>
+  <rect x="28" y="102" width="302" height="100" rx="12" class="node"/>
+  <text x="45" y="140">Tank temperature probe</text>
+  <text x="45" y="178" class="small">Back in original tank pocket</text>
+  <rect x="430" y="102" width="342" height="100" rx="12" class="node"/>
+  <text x="447" y="140">Boiler store input</text>
+  <text x="447" y="175" class="small">Green pair · likely B3 / 8830</text>
+
+  <path d="M230 309H280" class="signal" marker-end="url(#arrow)"/>
+  <path d="M515 309H540V270H560" class="signal" marker-end="url(#arrow)"/>
+  <path d="M540 309V398H560" class="signal" marker-end="url(#arrow)"/>
+  <rect x="28" y="251" width="202" height="116" rx="12" class="node"/>
+  <text x="45" y="285">Delta room</text>
+  <text x="45" y="316">thermostat</text>
+  <text x="45" y="348" class="small">RF request</text>
+  <rect x="280" y="251" width="235" height="116" rx="12" class="node"/>
+  <text x="298" y="287">Delta S2302 RF</text>
+  <text x="298" y="322" class="small">Receiver relay</text>
+  <text x="298" y="351" class="small">On / Off switching</text>
+
+  <rect x="560" y="227" width="212" height="100" rx="12" class="node"/>
+  <text x="577" y="260">Boiler heat</text>
+  <text x="577" y="290">request</text>
+  <text x="577" y="316" class="small">No room-temp data</text>
+  <rect x="560" y="348" width="212" height="100" rx="12" class="node"/>
+  <text x="577" y="381">External pump</text>
+  <text x="577" y="413" class="small">Switched live</text>
+  <text x="577" y="439" class="small">Neutral separate</text>
+
+  <text x="28" y="484" class="small">Reported connections; no electrical test or pump feedback.</text>
+  <text x="28" y="523">A BSB-LAN override can request boiler heat.</text>
+  <text x="28" y="557">It cannot power the pump while the Delta relay is off.</text>
+</svg>

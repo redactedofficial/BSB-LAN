@@ -872,10 +872,10 @@
             },
             {
               "type": "picture",
-              "image": "/local/bsb-lan/system-map.svg?v=20261014-2",
+              "image": "/local/bsb-lan/system-map.svg?v=20261015-1",
               "tap_action": {
                 "action": "url",
-                "url_path": "/local/bsb-lan/system-map.svg?v=20261014-2"
+                "url_path": "/local/bsb-lan/system-map.svg?v=20261015-1"
               },
               "hold_action": {
                 "action": "none"
@@ -883,7 +883,7 @@
             },
             {
               "type": "markdown",
-              "content": "<a href=\"/local/bsb-lan/system-map.svg?v=20261014-2\" target=\"_blank\" rel=\"noopener\">Open larger map</a> · Tap the map to enlarge. **Solid lines** show the tank's separate internal fluid paths; **dashed lines** are inferred house connections that need tracing. This is an identification map, not a wiring or valve-operation plan.\n\n**500 L is heating water.** Hot tap water runs through the separate stainless coil. The visible Honeywell VC4013 is a motorised routing valve; a thermostatic tap-water mixer has not been identified. The black four-port unit is a likely hydraulic separator, with its model still unverified.\n\n[HAJDU tank description](https://hajdurt.hu/termek/hajdu-pt-cf-erp/42) · [Back to heating controls](/bms-overview/overview)"
+              "content": "<a href=\"/local/bsb-lan/system-map.svg?v=20261015-1\" target=\"_blank\" rel=\"noopener\">Open larger map</a> · Tap the map to enlarge. **Solid lines** show the tank's separate internal fluid paths; **dashed lines** are inferred house connections that need tracing. This is an identification map, not a wiring or valve-operation plan.\n\n**500 L is heating water.** Hot tap water runs through the separate stainless coil. The visible Honeywell VC4013 is a motorised routing valve; a thermostatic tap-water mixer has not been identified. The black four-port unit is a likely hydraulic separator, with its model still unverified.\n\n[HAJDU tank description](https://hajdurt.hu/termek/hajdu-pt-cf-erp/42) · [Back to heating controls](/bms-overview/overview)"
             }
           ]
         },
@@ -918,8 +918,28 @@
               ]
             },
             {
+              "type": "heading",
+              "heading": "Controls · Owner traced",
+              "icon": "mdi:connection"
+            },
+            {
+              "type": "picture",
+              "image": "/local/bsb-lan/control-map.svg?v=20261015-1",
+              "tap_action": {
+                "action": "url",
+                "url_path": "/local/bsb-lan/control-map.svg?v=20261015-1"
+              },
+              "hold_action": {
+                "action": "none"
+              }
+            },
+            {
               "type": "markdown",
-              "content": "**Still to identify**\n- The exact Honeywell A/B/AB branch destinations and who controls it.\n- The B3 probe's physical port and which store layers it represents.\n- The tap-water outlet path, mixing valve and any circulation loop.\n- Each actual radiator/room-heating zone.\n\nOpening this map sends no heating or valve command. The blue lever valves are isolation valves; their colour does not identify the water circuit."
+              "content": "<a href=\"/local/bsb-lan/control-map.svg?v=20261015-1\" target=\"_blank\" rel=\"noopener\">Open larger control map</a>\n\n**Tank probe:** traced to the green pair and returned to its original tank pocket by the owner. Likely B3; exact terminal numbers and pocket height still need identification.\n\n**Delta:** the owner reports a boiler heat request and a switched live to the external heating pump, with neutral separate. These are reported functional links, not an electrical inspection. The contact carries On/Off demand, not the measured room temperature.\n\n**A boiler software override cannot power the pump while the Delta relay is off.** Pump operation and radiator circulation have no independent feedback here.\n\n**Native pump output:** a read-only check on 15 October reports QX1 configured as Heating circuit pump HC1 Q2. Which pump it physically controls still needs tracing."
+            },
+            {
+              "type": "markdown",
+              "content": "**Still to identify**\n- The exact Honeywell A/B/AB branch destinations and who controls it.\n- The B3 probe's physical port and which store layers it represents.\n- The tap-water outlet path, mixing valve and any circulation loop.\n- Each actual radiator/room-heating zone.\n- The Delta-controlled pump identity, supply routing and boiler contact terminals.\n\nOpening this map sends no heating or valve command. The blue lever valves are isolation valves; their colour does not identify the water circuit."
             }
           ]
         }
