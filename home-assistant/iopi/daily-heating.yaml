@@ -1,0 +1,462 @@
+# Replaces the legacy room-heating package; do not install both.
+# Daily calendar/weather permits Delta-driven R2 distribution. R1 uses local return feedback.
+# DHW has its own unchanged package. No boiler configuration writes are performed here.
+input_number:
+  bsb_return_stop_temperature:
+    name: Manual return-water stop temperature
+    min: 30
+    max: 55
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_manual_heat_max_minutes:
+    name: Maximum heating-cycle duration
+    min: 5
+    max: 60
+    step: 5
+    mode: box
+    unit_of_measurement: min
+  bsb_calendar_hot_target:
+    name: Calendar event return target
+    min: 30
+    max: 50
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_calendar_cool_target:
+    name: Between-events return target
+    min: 30
+    max: 50
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_calendar_hysteresis:
+    name: Return-water restart differential
+    min: 1
+    max: 5
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_cycle_return_target:
+    name: Active cycle return target
+    min: 30
+    max: 55
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_cycle_flow_target:
+    name: Active cycle flow setting
+    min: 25
+    max: 65
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_heat_flow_ceiling:
+    name: Maximum requested HC1 flow setting
+    min: 35
+    max: 60
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_heating_weather_limit:
+    name: Skip room-heating slots at or above
+    min: 5
+    max: 30
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+  bsb_cold_boost_temperature:
+    name: Cold-weather boost at or below
+    min: -20
+    max: 10
+    step: 1
+    mode: box
+    unit_of_measurement: °C
+input_boolean:
+  bsb_manual_heat_active:
+    name: Heating water cycle active
+  bsb_calendar_enabled:
+    name: Calendar heating enabled
+  bsb_heat_restart_pending:
+    name: Heating restart checks pending
+    initial: true
+  bsb_thermostat_override:
+    name: Ignore room thermostat during water cycle
+  bsb_cycle_override:
+    name: Owned cycle thermostat override
+  bsb_calendar_window_active:
+    name: Heating calendar event active
+  bsb_heat_fault:
+    name: Heating-cycle fault
+  bsb_weather_gate_enabled:
+    name: Use outdoor weather for heating slots
+  bsb_cold_boost_enabled:
+    name: Allow cold-weather heating outside events
+  bsb_cold_boost_overnight:
+    name: Allow cold-weather heating overnight
+  iopi_heating_blocked:
+    name: Block automatic room heating
+    icon: mdi:pause-circle
+input_datetime:
+  bsb_manual_heat_deadline:
+    name: Heating cycle deadline
+    has_date: true
+    has_time: true
+  bsb_heat_next_start:
+    name: Earliest calendar heating restart
+    has_date: true
+    has_time: true
+input_text:
+  bsb_manual_heat_status:
+    name: Heating cycle status
+    max: 120
+  bsb_calendar_status:
+    name: Heating calendar status
+    max: 120
+  bsb_heat_owner:
+    name: Heating cycle owner
+    max: 20
+  bsb_saved_mode:
+    name: Saved HC1 mode
+    max: 80
+  bsb_saved_h5:
+    name: Saved H5 contact configuration
+    max: 80
+  bsb_cycle_h5:
+    name: Owned H5 contact configuration
+    max: 80
+  bsb_saved_flow:
+    name: Saved HC1 flow setting
+    max: 20
+template:
+- sensor:
+  - name: Heating calendar return target
+    unique_id: bsb_calendar_return_target
+    unit_of_measurement: °C
+    device_class: temperature
+    state: '{{ states(''input_number.bsb_calendar_hot_target'' if is_state(''input_boolean.bsb_calendar_window_active'',
+      ''on'') else ''input_number.bsb_calendar_cool_target'') }}'
+    availability: '{{ is_state(''input_boolean.bsb_calendar_window_active'', ''on'') }}'
+  - name: BSB outdoor weather estimate
+    unique_id: bsb_outdoor_weather_estimate
+    unit_of_measurement: °C
+    device_class: temperature
+    state_class: measurement
+    state: '{{ state_attr(''weather.forecast_home'', ''temperature'') }}'
+    availability: '{{ states(''weather.forecast_home'') not in [''unknown'', ''unavailable''] and is_number(state_attr(''weather.forecast_home'',
+      ''temperature'')) and state_attr(''weather.forecast_home'', ''temperature_unit'') == ''°C'' and as_timestamp(now())
+      - as_timestamp(states[''weather.forecast_home''].last_updated, 0) < 5400 }}'
+    attributes:
+      source: Met.no Home weather; outdoor estimate, not a boiler sensor
+  - name: BSB heating state
+    unique_id: bsb_heating_state
+    state: '{% set value = states(''sensor.bsb_lan_00_34_status_8000_status_heating_circuit_1'') %}{{ {''122'':
+      ''Room limited'', ''114'': ''Comfort'', ''121'': ''Frost protect'', ''17'': ''Overrun''}.get(value.split(''
+      - '')[0], value.split('' - '', 1)[-1]) }}'
+    availability: '{{ states(''sensor.bsb_lan_00_34_status_8000_status_heating_circuit_1'') not in [''unknown'',
+      ''unavailable''] }}'
+  - name: BSB dhw state
+    unique_id: bsb_dhw_state
+    state: '{% set value = states(''sensor.bsb_lan_00_34_status_8003_status_dhw'') %}{{ {''99'': ''Charged''}.get(value.split(''
+      - '')[0], value.split('' - '', 1)[-1]) }}'
+    availability: '{{ states(''sensor.bsb_lan_00_34_status_8003_status_dhw'') not in [''unknown'', ''unavailable'']
+      }}'
+  - name: BSB boiler state
+    unique_id: bsb_boiler_state
+    state: '{% set value = states(''sensor.bsb_lan_00_34_status_8005_status_boiler'') %}{{ {''25'': ''Off'', ''17'':
+      ''Overrun'', ''166'': ''Heating'', ''167'': ''Heating'', ''169'': ''Hot water''}.get(value.split('' - '')[0],
+      value.split('' - '', 1)[-1]) }}'
+    availability: '{{ states(''sensor.bsb_lan_00_34_status_8005_status_boiler'') not in [''unknown'', ''unavailable'']
+      }}'
+  - name: BSB h5 contact
+    unique_id: bsb_h5_contact
+    state: '{% set value = states(''sensor.bsb_lan_00_33_io_test_7865_contact_state_h5'') %}{{ {''0'': ''Open'',
+      ''1'': ''Closed''}.get(value.split('' - '')[0], value.split('' - '', 1)[-1]) }}'
+    availability: '{{ states(''sensor.bsb_lan_00_33_io_test_7865_contact_state_h5'') not in [''unknown'', ''unavailable'']
+      }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/9/700/status
+  sensor:
+  - name: BSB heat mode readback
+    unique_id: bsb_heat_mode_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/29/5978/status
+  sensor:
+  - name: BSB heat h5 readback
+    unique_id: bsb_heat_h5_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/9/742/status
+  sensor:
+  - name: BSB heat flow readback
+    unique_id: bsb_heat_flow_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/36/8314/status
+  sensor:
+  - name: BSB heat return readback
+    unique_id: bsb_heat_return_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/29/5977/status
+  sensor:
+  - name: BSB heat role readback
+    unique_id: bsb_heat_role_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/33/7865/status
+  sensor:
+  - name: BSB heat contact readback
+    unique_id: bsb_heat_contact_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+- triggers:
+  - trigger: mqtt
+    topic: BSB-LAN/0/31/6700/status
+  sensor:
+  - name: BSB heat error readback
+    unique_id: bsb_heat_error_readback
+    device_class: timestamp
+    state: '{{ now().isoformat() }}'
+    attributes:
+      payload: '{{ trigger.payload }}'
+      received_at: '{{ as_timestamp(now()) }}'
+script:
+  bsb_manual_heat_start:
+    alias: IO-PI manual heating once
+    mode: single
+    sequence:
+    - action: script.bsb_heat_control
+      data:
+        operation: start
+  bsb_manual_heat_stop:
+    alias: IO-PI stop heating and pause daily schedule
+    mode: single
+    sequence:
+    - action: script.bsb_heat_control
+      data:
+        operation: stop
+  bsb_heat_control:
+    alias: IO-PI daily and manual heating coordinator
+    mode: queued
+    max: 5
+    fields:
+      operation:
+        description: start, stop or reconcile
+    sequence:
+    - condition: template
+      value_template: '{{ operation in [''start'', ''stop'', ''reconcile''] }}'
+    - choose:
+      - conditions: '{{ operation == ''start'' }}'
+        sequence:
+        - action: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.bsb_calendar_enabled
+        - action: mqtt.publish
+          data:
+            topic: iopi/bmsiopi/heating/mode/set
+            payload: Manual
+            retain: false
+        - wait_template: '{{ is_state(''select.bmsiopi_heating_mode'', ''Manual'') }}'
+          timeout: 00:00:10
+          continue_on_timeout: true
+        - stop: Manual once requested; local node owns cutoff and deadline
+      - conditions: '{{ operation == ''stop'' }}'
+        sequence:
+        - action: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.bsb_calendar_enabled
+        - action: mqtt.publish
+          data:
+            topic: iopi/bmsiopi/heating/mode/set
+            payload: 'Off'
+            retain: false
+        - stop: Stop requested; local node performs boiler-first stop and pump run-on
+    - variables:
+        calendar_result: {}
+    - action: calendar.get_events
+      response_variable: calendar_result
+      continue_on_error: true
+      target:
+        entity_id: calendar.heating
+      data:
+        start_date_time: '{{ (now() - timedelta(days=1)).isoformat() }}'
+        end_date_time: '{{ (now() + timedelta(days=1)).isoformat() }}'
+    - variables:
+        calendar_ok: '{{ ''calendar.heating'' in calendar_result and states(''calendar.heating'') in [''on'', ''off'']
+          }}'
+        event_active: '{%- set ns = namespace(active=false) -%} {%- for event in calendar_result.get(''calendar.heating'',
+          {}).get(''events'', []) -%} {%- if event.start | string | length > 10 and event.end | string | length
+          > 10 and as_timestamp(event.start, 0) <= as_timestamp(now()) < as_timestamp(event.end, 0) -%} {%- set
+          ns.active = true -%}{%- endif -%}{%- endfor -%}{{ ns.active }}'
+        event_end: '{%- set ns = namespace(end=0) -%} {%- for event in calendar_result.get(''calendar.heating'',
+          {}).get(''events'', []) -%} {%- if event.start | string | length > 10 and event.end | string | length
+          > 10 and as_timestamp(event.start, 0) <= as_timestamp(now()) < as_timestamp(event.end, 0) -%} {%- set
+          ns.end = [ns.end, as_timestamp(event.end, 0)] | max -%} {%- endif -%}{%- endfor -%}{{ ns.end }}'
+        cold_boost: '{{ is_state(''input_boolean.bsb_weather_gate_enabled'', ''on'') and is_state(''input_boolean.bsb_cold_boost_enabled'',
+          ''on'') and is_number(states(''sensor.bsb_outdoor_weather_estimate'')) and is_number(states(''input_number.bsb_cold_boost_temperature''))
+          and states(''sensor.bsb_outdoor_weather_estimate'') | float(99) <= states(''input_number.bsb_cold_boost_temperature'')
+          | float(-99) and (is_state(''input_boolean.bsb_cold_boost_overnight'', ''on'') or 6 <= now().hour < 22)
+          }}'
+        weather_blocked: '{{ is_state(''input_boolean.bsb_weather_gate_enabled'', ''on'') and (not is_number(states(''sensor.bsb_outdoor_weather_estimate''))
+          or not is_number(states(''input_number.bsb_heating_weather_limit'')) or states(''sensor.bsb_outdoor_weather_estimate'')
+          | float(99) >= states(''input_number.bsb_heating_weather_limit'') | float(0)) }}'
+        target_valid: '{{ is_number(states(''input_number.bsb_calendar_hot_target'')) and 30 <= states(''input_number.bsb_calendar_hot_target'')
+          | float <= 55 }}'
+    - variables:
+        window_active: '{{ event_active or cold_boost }}'
+        allowed: '{{ is_state(''input_boolean.bsb_calendar_enabled'', ''on'') and calendar_ok and (event_active
+          or cold_boost) and not weather_blocked and target_valid and is_state(''input_boolean.iopi_heating_blocked'',
+          ''off'') and is_state(''input_boolean.bsb_heat_fault'', ''off'') }}'
+        reason: '{{ ''Daily schedule paused'' if not is_state(''input_boolean.bsb_calendar_enabled'', ''on'') else
+          ''Calendar unavailable'' if not calendar_ok else ''Automatic heating blocked'' if not is_state(''input_boolean.iopi_heating_blocked'',
+          ''off'') else ''Heating fault flag set'' if not is_state(''input_boolean.bsb_heat_fault'', ''off'') else
+          ''Outdoor weather warm or unavailable'' if weather_blocked else ''Invalid daily return target'' if not
+          target_valid else ''Cold-weather allowance'' if cold_boost else ''Heating calendar event'' if event_active
+          else ''Between heating events'' }}'
+        permission_expires: '{{ [as_timestamp(now()) + 75, event_end | float] | min if event_active and not cold_boost
+          else as_timestamp(now()) + 75 }}'
+    - action: mqtt.publish
+      data:
+        topic: iopi/bmsiopi/heating/policy/set
+        retain: false
+        payload: '{{ {''allowed'': allowed, ''target'': states(''input_number.bsb_calendar_hot_target'') | float(45),
+          ''differential'': states(''input_number.bsb_calendar_hysteresis'') | float(2), ''expires'': permission_expires,
+          ''reason'': reason} | to_json }}'
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.bsb_calendar_status
+      data:
+        value: '{{ (''Allowed: '' if allowed else ''Blocked: '') ~ reason ~ ''; Delta controls pump'' }}'
+    - action: '{{ ''input_boolean.turn_on'' if window_active else ''input_boolean.turn_off'' }}'
+      target:
+        entity_id: input_boolean.bsb_calendar_window_active
+    - choose:
+      - conditions: '{{ is_state(''input_boolean.bsb_calendar_enabled'', ''on'') and is_state(''select.bmsiopi_heating_mode'',
+          ''Off'') }}'
+        sequence:
+        - action: mqtt.publish
+          data:
+            topic: iopi/bmsiopi/heating/mode/set
+            payload: Thermostat
+            retain: false
+      - conditions: '{{ is_state(''input_boolean.bsb_calendar_enabled'', ''off'') and is_state(''select.bmsiopi_heating_mode'',
+          ''Thermostat'') }}'
+        sequence:
+        - action: mqtt.publish
+          data:
+            topic: iopi/bmsiopi/heating/mode/set
+            payload: 'Off'
+            retain: false
+  bsb_heat_restart_reconcile:
+    alias: IO-PI reconcile daily heating after restart
+    mode: single
+    sequence:
+    - action: script.bsb_heat_control
+      data:
+        operation: reconcile
+automation:
+- id: bsb_calendar_water_heating
+  alias: IO-PI daily heating permissions
+  mode: single
+  triggers:
+  - trigger: time_pattern
+    seconds: /30
+  - trigger: calendar
+    entity_id: calendar.heating
+    event: start
+  - trigger: calendar
+    entity_id: calendar.heating
+    event: end
+  - trigger: homeassistant
+    event: start
+  - trigger: state
+    entity_id:
+    - input_boolean.bsb_calendar_enabled
+    - input_number.bsb_calendar_hot_target
+    - input_number.bsb_calendar_hysteresis
+    - input_boolean.bsb_weather_gate_enabled
+    - input_number.bsb_heating_weather_limit
+    - sensor.bsb_outdoor_weather_estimate
+    - input_boolean.bsb_cold_boost_enabled
+    - input_boolean.bsb_cold_boost_overnight
+    - input_number.bsb_cold_boost_temperature
+    - input_boolean.iopi_heating_blocked
+    - input_boolean.bsb_heat_fault
+  actions:
+  - action: script.bsb_heat_control
+    data:
+      operation: reconcile
+- id: iopi_manual_control_pauses_daily_heating
+  alias: IO-PI manual override pauses daily heating
+  mode: queued
+  triggers:
+  - trigger: state
+    entity_id: select.bmsiopi_heating_mode
+    to: Manual
+  - trigger: state
+    entity_id: select.bmsiopi_heating_mode
+    from: Thermostat
+    to: 'Off'
+  actions:
+  - action: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.bsb_calendar_enabled
+- id: iopi_mirror_heating_state
+  alias: IO-PI heating status in BMS
+  mode: restart
+  triggers:
+  - trigger: homeassistant
+    event: start
+  - trigger: state
+    entity_id:
+    - select.bmsiopi_heating_mode
+    - sensor.bmsiopi_heating_status
+    - switch.bmsiopi_relay_1
+    - switch.bmsiopi_relay_2
+  actions:
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.bsb_manual_heat_status
+    data:
+      value: '{{ states(''sensor.bmsiopi_heating_status'')[:120] }}'
+  - action: '{{ ''input_boolean.turn_on'' if is_state(''select.bmsiopi_heating_mode'', ''Manual'') else ''input_boolean.turn_off''
+      }}'
+    target:
+      entity_id: input_boolean.bsb_manual_heat_active
+  - choose:
+    - conditions: '{{ states(''select.bmsiopi_heating_mode'') in [''Off'', ''Manual'', ''Thermostat''] }}'
+      sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.bsb_heat_restart_pending

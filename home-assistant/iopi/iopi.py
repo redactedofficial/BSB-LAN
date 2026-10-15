@@ -18,7 +18,7 @@ import subprocess
 import threading
 import time
 
-VERSION = '0.1.1'
+VERSION = '0.2.0'
 LOG = logging.getLogger('iopi')
 # BCM GPIO -> physical 40-pin header position. GPIO0/1 are reserved for HAT ID.
 PINS = {2: 3, 3: 5, 4: 7, 5: 29, 6: 31, 7: 26, 8: 24, 9: 21,
@@ -171,7 +171,7 @@ class Outputs:
             if self.state.get(2):
                 self.pump_until = max(self.pump_until, self.clock() + self.config['pump_run_on_seconds'])
 
-    def command(self, rid, on):
+    def command(self, rid, on, coordinated=False):
         if rid not in self.enabled or self.fault:
             return 'not_commissioned' if not self.fault else 'gpio_fault'
         now = self.clock()
@@ -187,8 +187,9 @@ class Outputs:
                 return 'pump_run_on'
         self.write(rid, on)
         if on:
-            self.expires[rid] = min(now + self.config['lease_seconds'],
-                                    self.started[rid] + self.config['max_on_seconds'])
+            ceiling = (float('inf') if coordinated and rid == 2 else
+                       self.started[rid] + self.config['max_on_seconds'])
+            self.expires[rid] = min(now + self.config['lease_seconds'], ceiling)
         return 'accepted'
 
     def tick(self):
@@ -219,12 +220,39 @@ class Outputs:
 
 class Heater:
     """Comfort control only: native boiler protections remain authoritative."""
-    def __init__(self, config, outputs, clock=time.monotonic):
-        self.config, self.outputs, self.clock = config, outputs, clock
+    def __init__(self, config, outputs, clock=time.monotonic, wall_clock=time.time):
+        self.config, self.outputs, self.clock, self.wall_clock = config, outputs, clock, wall_clock
         self.mode, self.result = 'Off', 'Stopped'
         self.cutoff = config['return_cutoff']
         self.receipts = {}
         self.deadline = 0.0
+        self.permission = None
+        self.charge_deadline = self.next_charge = 0.0
+
+    def daily_policy(self, payload):
+        try:
+            policy = json.loads(payload)
+            target, expires = policy['target'], policy['expires']
+            differential = policy.get('differential', 2)
+            if (type(policy['allowed']) is not bool or type(target) not in (int, float)
+                    or not math.isfinite(target) or not 30 <= target <= 55
+                    or type(expires) not in (int, float) or not math.isfinite(expires)
+                    or type(differential) not in (int, float) or not math.isfinite(differential) or not 1 <= differential <= 5
+                    or not self.wall_clock() < expires <= self.wall_clock() + 90
+                    or not isinstance(policy['reason'], str) or len(policy['reason']) > 80):
+                raise ValueError('Invalid daily policy')
+        except (ValueError, TypeError, KeyError):
+            return 'invalid_policy'
+        self.permission = policy
+        self.permission['differential'] = differential
+        return 'accepted'
+
+    def policy_reason(self):
+        if not self.permission or self.wall_clock() >= self.permission['expires']:
+            return 'Daily permission expired; waiting for Home Assistant'
+        if not self.permission['allowed']:
+            return self.permission['reason']
+        return None
 
     def feedback(self, kind, payload):
         try:
@@ -269,9 +297,12 @@ class Heater:
         if mode == 'Off':
             self.stop()
             return 'accepted'
-        reason = self.block_reason()
-        if mode == 'Thermostat' and not (self.config['thermostat']['enabled'] and self.config['thermostat']['connected']):
-            reason = 'Delta input not connected'
+        reason = self.block_reason() if mode == 'Manual' else None
+        if mode == 'Thermostat':
+            if not (self.config['thermostat']['enabled'] and self.config['thermostat']['connected']):
+                reason = 'Delta input not connected'
+            elif self.outputs.fault or not {1, 2} <= self.outputs.enabled:
+                reason = 'GPIO outputs unavailable'
         if reason:
             self.result = reason
             return 'blocked'
@@ -283,21 +314,59 @@ class Heater:
     def tick(self, demand):
         if self.mode == 'Off':
             return
+        if self.mode == 'Thermostat':
+            self.tick_daily(demand)
+            return
         reason = self.block_reason()
         if self.clock() >= self.deadline:
             reason = 'Maximum heating duration reached'
         if reason:
             self.stop(reason)
             return
-        if self.mode == 'Thermostat' and demand is not True:
-            self.outputs.stop_heat()
-            if 2 in self.outputs.enabled:
-                self.outputs.command(2, False)
-            self.result = 'Waiting for Delta demand'
-            return
         self.outputs.command(2, True)
         status = self.outputs.command(1, True)
         self.result = 'Heating requested' if status == 'accepted' else 'Priming radiator pump'
+
+    def tick_daily(self, demand):
+        reason = self.policy_reason()
+        if self.outputs.fault:
+            reason = 'GPIO fault'
+        elif demand is not True:
+            reason = 'Waiting for Delta demand' if demand is False else 'Delta input unavailable'
+        elif self.fresh() and self.receipts['error'][0] != 0:
+            reason = f'Boiler error {self.receipts["error"][0]}'
+        if reason:
+            self.outputs.stop_heat()
+            if 2 in self.outputs.enabled:
+                self.outputs.command(2, False)
+            self.result = reason
+            return
+        # Distribution can use heat already stored in the buffer. It does not
+        # depend on a low boiler return temperature or a new burner request.
+        self.outputs.command(2, True, coordinated=True)
+        target = self.permission['target']
+        if not self.fresh():
+            self.outputs.stop_heat()
+            self.result = 'Pump on; boiler blocked: feedback unavailable'
+            return
+        now, temperature = self.clock(), self.receipts['return'][0]
+        if self.outputs.state.get(1) and now >= self.charge_deadline:
+            self.outputs.stop_heat()
+            self.next_charge = now + 600
+        if temperature >= target:
+            if self.outputs.state.get(1):
+                self.outputs.stop_heat()
+                self.next_charge = now + 600
+            self.result = 'Pump on; boiler return target reached'
+        elif now < self.next_charge or (not self.outputs.state.get(1) and temperature > target - self.permission['differential']):
+            self.result = 'Pump on; boiler resting / within return differential'
+        else:
+            was_on = self.outputs.state.get(1)
+            status = self.outputs.command(1, True)
+            if status == 'accepted' and not was_on:
+                self.charge_deadline = now + self.config['max_on_seconds']
+            self.result = (f'Pump on; boiler requested to {target:g} C return'
+                           if status == 'accepted' else 'Priming radiator pump')
 
 
 def discovery(config):
@@ -345,6 +414,9 @@ def discovery(config):
         if key == 'return_water':
             row.update(device_class='temperature', unit_of_measurement='°C', state_class='measurement')
         yield f'homeassistant/sensor/bmsiopi/{key}/config', row
+    row = base('sensor', 'daily_permission', 'Daily heating permission', 'system_available')
+    row.update(expire_after=20, icon='mdi:calendar-check')
+    yield 'homeassistant/sensor/bmsiopi/daily_permission/config', row
     for key, name in [('status', 'I/O configuration'), ('temperature', 'CPU temperature'),
                        ('power', 'Power status'), ('uptime', 'Uptime')]:
         row = base('sensor', key, name, 'system_available')
@@ -397,7 +469,12 @@ class Node:
         self.generation += 1
         self.connected.set()
         client.subscribe('homeassistant/status', qos=0)
-        for topic in [*FEEDBACK, 'iopi/bmsiopi/heating/mode/set', 'iopi/bmsiopi/heating/cutoff/set']:
+        for topic in FEEDBACK:
+            # Suppress stored subscription snapshots, but accept newly published
+            # BSB readings even though the gateway itself publishes with RETAIN.
+            client.subscribe(topic, options=self.module.SubscribeOptions(qos=0, retainAsPublished=False, retainHandling=2))
+        for topic in ['iopi/bmsiopi/heating/mode/set', 'iopi/bmsiopi/heating/cutoff/set',
+                      'iopi/bmsiopi/heating/policy/set']:
             client.subscribe(topic, options=self.module.SubscribeOptions(qos=0, retainAsPublished=True, retainHandling=2))
         for r in self.config['relays']:
             client.subscribe(f'iopi/bmsiopi/relay_{r["id"]}/set',
@@ -416,10 +493,11 @@ class Node:
                 except queue.Full:
                     pass
             return
-        if msg.retain or msg.dup or len(msg.payload) > 128:
+        if msg.retain or msg.dup or len(msg.payload) > (512 if msg.topic == 'iopi/bmsiopi/heating/policy/set' else 128):
             LOG.warning('mqtt event=invalid_or_replayed_command')
             return
-        if msg.topic in FEEDBACK or msg.topic in ('iopi/bmsiopi/heating/mode/set', 'iopi/bmsiopi/heating/cutoff/set'):
+        if msg.topic in FEEDBACK or msg.topic in ('iopi/bmsiopi/heating/mode/set', 'iopi/bmsiopi/heating/cutoff/set',
+                                                'iopi/bmsiopi/heating/policy/set'):
             try:
                 payload = msg.payload.decode('utf8')
                 kind = 'feedback' if msg.topic in FEEDBACK else 'setting'
@@ -486,6 +564,9 @@ class Node:
         self.status('heating_mode/state', self.heater.mode)
         self.status('return_cutoff/state', str(self.heater.cutoff))
         self.status('heating_status/state', self.heater.result)
+        reason = self.heater.policy_reason()
+        self.status('daily_permission/state', ('Blocked: ' + reason if reason else
+                    'Allowed: ' + self.heater.permission['reason']))
         fresh = self.heater.fresh()
         self.status('boiler_available', 'online' if fresh else 'offline', True)
         if fresh:
@@ -506,6 +587,7 @@ class Node:
                     self.heater.stop('Connection changed; stopped')
                     self.outputs.disconnect()
                     self.heater.receipts.clear()
+                    self.heater.permission = None
                     generation = self.generation
                     self.last_observation = None
                     if self.connected.is_set():
@@ -541,6 +623,8 @@ class Node:
                     elif event[0] == 'setting':
                         if event[3].endswith('/mode/set'):
                             self.heater.select(event[4])
+                        elif event[3].endswith('/policy/set'):
+                            self.heater.daily_policy(event[4])
                         else:
                             try:
                                 value = float(event[4])
@@ -562,6 +646,8 @@ class Node:
                             if rid == 1:
                                 result = self.heater.select('Manual' if on else 'Off')
                             else:
+                                if rid == 2 and on and self.heater.mode == 'Thermostat':
+                                    self.heater.stop('Manual pump control')
                                 if rid == 2 and not on:
                                     self.heater.stop('Pump stop requested')
                                 result = self.outputs.command(rid, on)

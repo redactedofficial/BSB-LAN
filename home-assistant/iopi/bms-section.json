@@ -56,9 +56,9 @@
     },
     {
       "type": "tile",
-      "entity": "sensor.bmsiopi_heating_status",
-      "name": "IO-PI control",
-      "icon": "mdi:information-outline",
+      "entity": "sensor.bmsiopi_daily_permission",
+      "name": "Daily permission",
+      "icon": "mdi:calendar-check",
       "tap_action": {
         "action": "more-info"
       },
@@ -72,7 +72,7 @@
     },
     {
       "type": "markdown",
-      "content": "R1/R2 are the relay interface. Missing boiler feedback blocks IO-PI heat. The existing BSB/DHW controls remain separate."
+      "content": "Daily room heating follows Delta demand and the calendar/weather permission. R2 distributes buffer heat; R1 requests boiler charging only with fresh feedback. DHW keeps its separate routine."
     },
     {
       "type": "button",

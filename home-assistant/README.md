@@ -45,6 +45,12 @@ boiler request R1 and radiator pump R2 with pump priming/run-on, fresh BSB feedb
 a return-water cutoff and bounded runtime. Credentials and commissioned local
 configuration are excluded; the supplied example leaves outputs disabled.
 
+The included daily-heating package replaces the legacy room routine while
+preserving its calendar/weather helper IDs. Automatic room heat needs both
+Delta demand and a fresh calendar/cold-weather permission. R2 can distribute
+stored heat after R1 reaches its return target. The separate DHW routine is
+preserved. See the IO-PI README for the scoped policy topic and migration.
+
 ## Seasonal estimated gas budget
 
 Import `seasonal-budget.yaml` as a Home Assistant automation blueprint. Create

@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 import queue
+import threading
 
 from iopi import PINS, RELAY_GPIO, GpioHardware, Heater, Node, Outputs, discovery, parse_pins, validate
 
@@ -32,7 +33,13 @@ class Tests(unittest.TestCase):
     def setUp(self):
         self.config, self.hw, self.clock = config(), Hardware(), Clock()
         self.outputs = Outputs(self.config, self.hw, self.clock)
-        self.heater = Heater(self.config, self.outputs, self.clock)
+        self.heater = Heater(self.config, self.outputs, self.clock, self.clock)
+
+    def daily(self, allowed=True, target=45):
+        self.config['thermostat'].update(enabled=True, connected=True)
+        self.assertEqual(self.heater.daily_policy(json.dumps({'allowed': allowed, 'target': target,
+                        'expires': self.clock.now + 75, 'reason': 'Calendar event' if allowed else 'Between events'})), 'accepted')
+        self.assertEqual(self.heater.select('Thermostat'), 'accepted')
 
     def fresh(self, temp='40', error='0 - No error'):
         self.heater.feedback('return', temp)
@@ -164,10 +171,8 @@ class Tests(unittest.TestCase):
         self.assertFalse(self.outputs.state[8])
 
     def test_thermostat_open_stops_heat_but_keeps_listening(self):
-        self.config['thermostat']['enabled'] = True
-        self.config['thermostat']['connected'] = True
+        self.daily()
         self.fresh()
-        self.heater.select('Thermostat')
         self.heater.tick(True)
         self.clock.now += 5
         self.heater.tick(True)
@@ -175,6 +180,121 @@ class Tests(unittest.TestCase):
         self.heater.tick(False)
         self.assertEqual(self.heater.mode, 'Thermostat')
         self.assertFalse(self.outputs.state[1])
+
+    def test_daily_closed_delta_with_hot_buffer_runs_pump_without_boiler(self):
+        self.daily()
+        self.fresh('50')
+        self.heater.tick(True)
+        self.assertTrue(self.outputs.state[2])
+        self.assertFalse(self.outputs.state[1])
+
+    def test_daily_can_use_stored_heat_when_boiler_feedback_is_missing(self):
+        self.daily()
+        self.heater.tick(True)
+        self.assertTrue(self.outputs.state[2])
+        self.assertFalse(self.outputs.state[1])
+
+    def test_daily_blocked_or_expired_permission_never_starts_pump(self):
+        self.daily(False)
+        self.heater.tick(True)
+        self.assertEqual(self.hw.writes, [])
+        self.daily()
+        self.clock.now += 76
+        self.heater.tick(True)
+        self.assertEqual(self.hw.writes, [])
+
+    def test_daily_allowed_without_delta_demand_never_starts_any_heat(self):
+        self.daily()
+        self.fresh('30')
+        self.heater.tick(False)
+        self.heater.tick(None)
+        self.assertEqual(self.hw.writes, [])
+
+    def test_daily_boiler_error_blocks_both_outputs(self):
+        self.daily()
+        self.fresh('30', '118 - Low pressure')
+        self.heater.tick(True)
+        self.assertEqual(self.hw.writes, [])
+
+    def test_daily_permission_expiry_stops_boiler_and_allows_pump_run_on(self):
+        self.daily()
+        self.fresh()
+        self.heater.tick(True)
+        self.clock.now += 5
+        self.heater.tick(True)
+        self.assertTrue(self.outputs.state[1])
+        self.clock.now += 76
+        self.heater.tick(True)
+        self.assertFalse(self.outputs.state[1])
+        self.assertTrue(self.outputs.state[2])
+        self.clock.now += 121
+        self.outputs.tick()
+        self.assertFalse(self.outputs.state[2])
+
+    def test_daily_stale_boiler_feedback_stops_request_but_can_circulate(self):
+        self.daily()
+        self.fresh()
+        self.heater.tick(True)
+        self.clock.now += 5
+        self.heater.tick(True)
+        self.clock.now += 46
+        self.heater.tick(True)
+        self.assertFalse(self.outputs.state[1])
+        self.assertTrue(self.outputs.state[2])
+
+    def test_invalid_and_outdated_policy_cannot_enable_heat(self):
+        for changes in [{'expires': 9}, {'expires': 101}, {'target': 75}, {'allowed': 'true'}, {'target': float('nan')}]:
+            policy = {'allowed': True, 'target': 45, 'expires': 85, 'reason': 'Event'}
+            policy.update(changes)
+            self.assertEqual(self.heater.daily_policy(json.dumps(policy)), 'invalid_policy')
+            self.assertIsNone(self.heater.permission)
+
+    def test_daily_charge_deadline_is_not_extended_by_policy_renewals(self):
+        self.daily()
+        self.fresh()
+        self.heater.tick(True)
+        self.clock.now += 5
+        self.heater.tick(True)
+        deadline = self.heater.charge_deadline
+        self.clock.now += 10
+        self.daily()
+        self.fresh()
+        self.heater.tick(True)
+        self.assertEqual(self.heater.charge_deadline, deadline)
+
+    def test_daily_target_stops_boiler_but_keeps_house_pump_running(self):
+        self.daily()
+        self.fresh()
+        self.heater.tick(True)
+        self.clock.now += 5
+        self.heater.tick(True)
+        self.fresh('45')
+        self.heater.tick(True)
+        self.assertFalse(self.outputs.state[1])
+        self.assertTrue(self.outputs.state[2])
+
+    def test_daily_pump_can_continue_with_fresh_permission_without_lease_chatter(self):
+        self.daily()
+        self.fresh('50')
+        self.heater.tick(True)
+        self.clock.now += 3601
+        self.daily()
+        self.fresh('50')
+        self.heater.tick(True)
+        self.outputs.tick()
+        self.assertEqual(self.hw.writes, [(2, True)])
+
+    def test_feedback_subscription_accepts_new_retained_publications_but_no_snapshot(self):
+        subscriptions = {}
+        client = SimpleNamespace(subscribe=lambda topic, **kwargs: subscriptions.update({topic: kwargs}))
+        node = Node.__new__(Node)
+        node.module = SimpleNamespace(SubscribeOptions=lambda **kwargs: kwargs)
+        node.config, node.generation, node.connected = self.config, 0, threading.Event()
+        node.on_connect(client, None, None, SimpleNamespace(is_failure=False), None)
+        for topic in ('BSB-LAN/0/36/8314/status', 'BSB-LAN/0/31/6700/status'):
+            self.assertFalse(subscriptions[topic]['options']['retainAsPublished'])
+            self.assertEqual(subscriptions[topic]['options']['retainHandling'], 2)
+        self.assertTrue(subscriptions['iopi/bmsiopi/relay_1/set']['options']['retainAsPublished'])
 
     def test_emergency_fault_latches_and_blocks_restart(self):
         self.start()

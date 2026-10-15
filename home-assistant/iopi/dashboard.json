@@ -31,8 +31,20 @@
                   "name": "Heating mode"
                 },
                 {
+                  "entity": "input_boolean.bsb_calendar_enabled",
+                  "name": "Daily heating schedule"
+                },
+                {
+                  "entity": "input_boolean.iopi_heating_blocked",
+                  "name": "Block automatic heating"
+                },
+                {
+                  "entity": "sensor.bmsiopi_daily_permission",
+                  "name": "Schedule permission"
+                },
+                {
                   "entity": "number.bmsiopi_return_cutoff",
-                  "name": "Return-water cutoff"
+                  "name": "Manual return cutoff"
                 },
                 {
                   "entity": "sensor.bmsiopi_heating_status",
@@ -99,7 +111,7 @@
             },
             {
               "type": "markdown",
-              "content": "**{{ states('sensor.bmsiopi_heating_status') }}**\n\nR1 requests boiler heat; R2 runs the radiator pump. Starts with five seconds of pump priming; stops at the return cutoff or one hour, then allows two minutes of pump run-on. Manual ignores room demand; Thermostat follows the Delta contact. Fresh boiler return/error feedback is required. {% if states('sensor.bmsiopi_return_water') in ['unknown','unavailable'] %}**Boiler feedback is unavailable; heat requests are blocked.**{% endif %}\n\n{% if states('binary_sensor.bmsiopi_thermostat') in ['unknown','unavailable'] %}**Delta input is not commissioned or unavailable.** {% endif %}GPIO26's raw level is not a heat-demand reading. Native boiler control still determines burner operation. [Building heating overview](/bms-overview/overview)"
+              "content": "**{{ states('sensor.bmsiopi_heating_status') }}**\n\n**Daily heating = Delta demand + calendar/cold allowance + no weather/block veto.** Thermostat mode runs R2 only when those conditions agree. R1 can then request a buffer recharge with fresh boiler feedback, pump priming and a return cutoff. R2 keeps distributing stored heat after that cutoff while Delta still calls. Missing daily permission stops heat within 75 seconds, with two minutes of pump run-on after R1 stops. Manual Heat once is an explicit Delta/calendar override, bounded to one hour and the manual return cutoff. {% if states('sensor.bmsiopi_return_water') in ['unknown','unavailable'] %}**Boiler feedback is unavailable; R1 is blocked. Allowed Delta demand can still circulate stored heat.**{% endif %}\n\n{% if states('binary_sensor.bmsiopi_thermostat') in ['unknown','unavailable'] %}**Delta input is not commissioned or unavailable.** {% endif %}GPIO26's raw level is not a heat-demand reading. Native boiler control still determines burner operation. [Building heating overview](/bms-overview/overview)"
             }
           ]
         },
@@ -113,7 +125,7 @@
             },
             {
               "type": "markdown",
-              "content": "HIGH trigger · OFF = LOW GPIO drive. State is GPIO readback, without contact/load feedback. R3–R8 and independent pump operation use five-minute leases."
+              "content": "HIGH trigger · OFF = LOW GPIO drive. State is GPIO readback, without contact/load feedback. R3–R8 and independent pump operation use five-minute leases. Manual R1/R2 control pauses the daily schedule."
             },
             {
               "type": "button",

@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 *.log
 config.json
+DEPLOYMENT.local.md

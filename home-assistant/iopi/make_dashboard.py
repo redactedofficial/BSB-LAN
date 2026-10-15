@@ -33,7 +33,10 @@ def mode_button(name, mode, icon):
 heat_cards = [heading('Heating · IO-PI', 'mdi:radiator'),
     {'type': 'entities', 'show_header_toggle': False, 'entities': [
         {'entity': 'select.bmsiopi_heating_mode', 'name': 'Heating mode'},
-        {'entity': 'number.bmsiopi_return_cutoff', 'name': 'Return-water cutoff'},
+        {'entity': 'input_boolean.bsb_calendar_enabled', 'name': 'Daily heating schedule'},
+        {'entity': 'input_boolean.iopi_heating_blocked', 'name': 'Block automatic heating'},
+        {'entity': 'sensor.bmsiopi_daily_permission', 'name': 'Schedule permission'},
+        {'entity': 'number.bmsiopi_return_cutoff', 'name': 'Manual return cutoff'},
         {'entity': 'sensor.bmsiopi_heating_status', 'name': 'Control status'},
         {'entity': 'sensor.bmsiopi_return_water', 'name': 'Return water · BSB'},
         {'entity': 'sensor.bmsiopi_boiler_error', 'name': 'Boiler error · BSB'},
@@ -41,12 +44,14 @@ heat_cards = [heading('Heating · IO-PI', 'mdi:radiator'),
     mode_button('Heat once', 'Manual', 'mdi:fire'),
     mode_button('Stop heating', 'Off', 'mdi:stop-circle-outline'),
     {'type': 'markdown', 'content': "**{{ states('sensor.bmsiopi_heating_status') }}**\n\n"
-     "R1 requests boiler heat; R2 runs the radiator pump. Starts with five seconds of pump priming; "
-     "stops at the return cutoff or one hour, then allows two minutes of pump run-on. "
-     "Manual ignores room demand; Thermostat follows the Delta contact. "
-     "Fresh boiler return/error feedback is required. "
+     "**Daily heating = Delta demand + calendar/cold allowance + no weather/block veto.** "
+     "Thermostat mode runs R2 only when those conditions agree. R1 can then request a buffer recharge "
+     "with fresh boiler feedback, pump priming and a return cutoff. R2 keeps distributing stored heat "
+     "after that cutoff while Delta still calls. Missing daily permission stops heat within 75 seconds, "
+     "with two minutes of pump run-on after R1 stops. "
+     "Manual Heat once is an explicit Delta/calendar override, bounded to one hour and the manual return cutoff. "
      "{% if states('sensor.bmsiopi_return_water') in ['unknown','unavailable'] %}"
-     "**Boiler feedback is unavailable; heat requests are blocked.**{% endif %}\n\n"
+     "**Boiler feedback is unavailable; R1 is blocked. Allowed Delta demand can still circulate stored heat.**{% endif %}\n\n"
      "{% if states('binary_sensor.bmsiopi_thermostat') in ['unknown','unavailable'] %}"
      "**Delta input is not commissioned or unavailable.** {% endif %}"
      "GPIO26's raw level is not a heat-demand reading. "
@@ -56,7 +61,8 @@ heat_cards = [heading('Heating · IO-PI', 'mdi:radiator'),
 relay_cards = [heading('Relay controls · R1–R8', 'mdi:electric-switch'),
     {'type': 'markdown', 'content': 'HIGH trigger · OFF = LOW GPIO drive. '
      'State is GPIO readback, without contact/load feedback. '
-     'R3–R8 and independent pump operation use five-minute leases.'}]
+     'R3–R8 and independent pump operation use five-minute leases. '
+     'Manual R1/R2 control pauses the daily schedule.'}]
 for rid in range(1, 9):
     label = {1: 'R1 · Boiler request', 2: 'R2 · Radiator pump'}.get(rid, f'Relay {rid}')
     relay_cards.append({'type': 'button', 'entity': f'switch.bmsiopi_relay_{rid}', 'name': label,
@@ -106,9 +112,9 @@ integration = section([heading('IO-PI · Heating interface', 'mdi:raspberry-pi')
     read_tile('switch.bmsiopi_relay_1', 'Boiler request · R1', 'mdi:fire'),
     read_tile('switch.bmsiopi_relay_2', 'Radiator pump · R2', 'mdi:radiator'),
     read_tile('binary_sensor.bmsiopi_thermostat', 'Delta demand', 'mdi:thermostat'),
-    read_tile('sensor.bmsiopi_heating_status', 'IO-PI control', 'mdi:information-outline'),
-    {'type': 'markdown', 'content': 'R1/R2 are the relay interface. '
-     'Missing boiler feedback blocks IO-PI heat. The existing BSB/DHW controls remain separate.'},
+    read_tile('sensor.bmsiopi_daily_permission', 'Daily permission', 'mdi:calendar-check'),
+    {'type': 'markdown', 'content': 'Daily room heating follows Delta demand and the calendar/weather permission. '
+     'R2 distributes buffer heat; R1 requests boiler charging only with fresh feedback. DHW keeps its separate routine.'},
     {'type': 'button', 'name': 'Open IO-PI', 'icon': 'mdi:raspberry-pi',
      'tap_action': {'action': 'navigate', 'navigation_path': '/dashboard-io-pi/overview'}}])
 (root / 'bms-section.json').write_text(json.dumps(integration, ensure_ascii=False, indent=2) + '\n', encoding='utf8')
