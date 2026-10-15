@@ -1,0 +1,78 @@
+{
+  "device_id": "bmsiopi",
+  "mqtt": {
+    "host": "mqtt.example.invalid",
+    "port": 8883,
+    "username": "iopi_node",
+    "password_file": "/etc/iopi/mqtt.password",
+    "ca_file": "/etc/iopi/mqtt-ca.pem"
+  },
+  "relays": [
+    {
+      "id": 1,
+      "gpio": 17,
+      "name": "Boiler request",
+      "enabled": false,
+      "active_low": null
+    },
+    {
+      "id": 2,
+      "gpio": 27,
+      "name": "Radiator pump",
+      "enabled": false,
+      "active_low": null
+    },
+    {
+      "id": 3,
+      "gpio": 22,
+      "name": "",
+      "enabled": false,
+      "active_low": null
+    },
+    {
+      "id": 4,
+      "gpio": 23,
+      "name": "",
+      "enabled": false,
+      "active_low": null
+    },
+    {
+      "id": 5,
+      "gpio": 24,
+      "name": "",
+      "enabled": false,
+      "active_low": null
+    },
+    {
+      "id": 6,
+      "gpio": 25,
+      "name": "",
+      "enabled": false,
+      "active_low": null
+    },
+    {
+      "id": 7,
+      "gpio": 5,
+      "name": "",
+      "enabled": false,
+      "active_low": null
+    },
+    {
+      "id": 8,
+      "gpio": 6,
+      "name": "",
+      "enabled": false,
+      "active_low": null
+    }
+  ],
+  "thermostat": {
+    "gpio": 26,
+    "enabled": false,
+    "connected": false
+  },
+  "lease_seconds": 300,
+  "max_on_seconds": 3600,
+  "pump_prime_seconds": 5,
+  "pump_run_on_seconds": 120,
+  "return_cutoff": 45
+}

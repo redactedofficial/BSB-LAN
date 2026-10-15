@@ -1,0 +1,917 @@
+{
+  "title": "IO-PI",
+  "views": [
+    {
+      "title": "Overview",
+      "path": "overview",
+      "icon": "mdi:raspberry-pi",
+      "type": "sections",
+      "max_columns": 3,
+      "header": {
+        "card": {
+          "type": "markdown",
+          "content": "# IO-PI\nHeating I/O · Eight relays · Delta demand"
+        }
+      },
+      "sections": [
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "Heating · IO-PI",
+              "icon": "mdi:radiator"
+            },
+            {
+              "type": "entities",
+              "show_header_toggle": false,
+              "entities": [
+                {
+                  "entity": "select.bmsiopi_heating_mode",
+                  "name": "Heating mode"
+                },
+                {
+                  "entity": "number.bmsiopi_return_cutoff",
+                  "name": "Return-water cutoff"
+                },
+                {
+                  "entity": "sensor.bmsiopi_heating_status",
+                  "name": "Control status"
+                },
+                {
+                  "entity": "sensor.bmsiopi_return_water",
+                  "name": "Return water · BSB"
+                },
+                {
+                  "entity": "sensor.bmsiopi_boiler_error",
+                  "name": "Boiler error · BSB"
+                },
+                {
+                  "entity": "binary_sensor.bmsiopi_thermostat",
+                  "name": "Delta heat demand"
+                }
+              ]
+            },
+            {
+              "type": "button",
+              "name": "Heat once",
+              "icon": "mdi:fire",
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "mqtt.publish",
+                "data": {
+                  "topic": "iopi/bmsiopi/heating/mode/set",
+                  "payload": "Manual",
+                  "retain": false
+                },
+                "confirmation": {
+                  "text": "Heat once? This can start the radiator pump and request boiler heat."
+                }
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "button",
+              "name": "Stop heating",
+              "icon": "mdi:stop-circle-outline",
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "mqtt.publish",
+                "data": {
+                  "topic": "iopi/bmsiopi/heating/mode/set",
+                  "payload": "Off",
+                  "retain": false
+                }
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "markdown",
+              "content": "**{{ states('sensor.bmsiopi_heating_status') }}**\n\nR1 requests boiler heat; R2 runs the radiator pump. Starts with five seconds of pump priming; stops at the return cutoff or one hour, then allows two minutes of pump run-on. Manual ignores room demand; Thermostat follows the Delta contact. Fresh boiler return/error feedback is required. {% if states('sensor.bmsiopi_return_water') in ['unknown','unavailable'] %}**Boiler feedback is unavailable; heat requests are blocked.**{% endif %}\n\n{% if states('binary_sensor.bmsiopi_thermostat') in ['unknown','unavailable'] %}**Delta input is not commissioned or unavailable.** {% endif %}GPIO26's raw level is not a heat-demand reading. Native boiler control still determines burner operation. [Building heating overview](/bms-overview/overview)"
+            }
+          ]
+        },
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "Relay controls · R1–R8",
+              "icon": "mdi:electric-switch"
+            },
+            {
+              "type": "markdown",
+              "content": "HIGH trigger · OFF = LOW GPIO drive. State is GPIO readback, without contact/load feedback. R3–R8 and independent pump operation use five-minute leases."
+            },
+            {
+              "type": "button",
+              "entity": "switch.bmsiopi_relay_1",
+              "name": "R1 · Boiler request",
+              "icon": "mdi:fire",
+              "show_state": true,
+              "tap_action": {
+                "action": "toggle",
+                "confirmation": {
+                  "text": "Change R1 · Boiler request? This switches its connected circuit; pump run-on may delay OFF."
+                }
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "double_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "button",
+              "entity": "switch.bmsiopi_relay_2",
+              "name": "R2 · Radiator pump",
+              "icon": "mdi:radiator",
+              "show_state": true,
+              "tap_action": {
+                "action": "toggle",
+                "confirmation": {
+                  "text": "Change R2 · Radiator pump? This switches its connected circuit; pump run-on may delay OFF."
+                }
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "double_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "button",
+              "entity": "switch.bmsiopi_relay_3",
+              "name": "Relay 3",
+              "icon": "mdi:electric-switch",
+              "show_state": true,
+              "tap_action": {
+                "action": "toggle",
+                "confirmation": {
+                  "text": "Change Relay 3? This switches its connected circuit; pump run-on may delay OFF."
+                }
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "double_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "button",
+              "entity": "switch.bmsiopi_relay_4",
+              "name": "Relay 4",
+              "icon": "mdi:electric-switch",
+              "show_state": true,
+              "tap_action": {
+                "action": "toggle",
+                "confirmation": {
+                  "text": "Change Relay 4? This switches its connected circuit; pump run-on may delay OFF."
+                }
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "double_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "button",
+              "entity": "switch.bmsiopi_relay_5",
+              "name": "Relay 5",
+              "icon": "mdi:electric-switch",
+              "show_state": true,
+              "tap_action": {
+                "action": "toggle",
+                "confirmation": {
+                  "text": "Change Relay 5? This switches its connected circuit; pump run-on may delay OFF."
+                }
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "double_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "button",
+              "entity": "switch.bmsiopi_relay_6",
+              "name": "Relay 6",
+              "icon": "mdi:electric-switch",
+              "show_state": true,
+              "tap_action": {
+                "action": "toggle",
+                "confirmation": {
+                  "text": "Change Relay 6? This switches its connected circuit; pump run-on may delay OFF."
+                }
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "double_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "button",
+              "entity": "switch.bmsiopi_relay_7",
+              "name": "Relay 7",
+              "icon": "mdi:electric-switch",
+              "show_state": true,
+              "tap_action": {
+                "action": "toggle",
+                "confirmation": {
+                  "text": "Change Relay 7? This switches its connected circuit; pump run-on may delay OFF."
+                }
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "double_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "button",
+              "entity": "switch.bmsiopi_relay_8",
+              "name": "Relay 8",
+              "icon": "mdi:electric-switch",
+              "show_state": true,
+              "tap_action": {
+                "action": "toggle",
+                "confirmation": {
+                  "text": "Change Relay 8? This switches its connected circuit; pump run-on may delay OFF."
+                }
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "double_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            }
+          ]
+        },
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "IO-PI · System",
+              "icon": "mdi:raspberry-pi"
+            },
+            {
+              "type": "entities",
+              "show_header_toggle": false,
+              "entities": [
+                {
+                  "entity": "sensor.bmsiopi_status",
+                  "name": "I/O setup"
+                },
+                {
+                  "entity": "sensor.bmsiopi_temperature",
+                  "name": "CPU temperature"
+                },
+                {
+                  "entity": "sensor.bmsiopi_power",
+                  "name": "Power status"
+                },
+                {
+                  "entity": "sensor.bmsiopi_uptime",
+                  "name": "Service uptime"
+                }
+              ]
+            },
+            {
+              "type": "button",
+              "name": "All usable GPIOs",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "navigate",
+                "navigation_path": "/dashboard-io-pi/gpio"
+              }
+            },
+            {
+              "type": "markdown",
+              "content": "MQTT connects over verified TLS. Missing or stale readings show unavailable. Only used pins have function names; the other GPIOs keep their numbers. The generic relay module has no electronic identity interface, so its physical presence is not detected."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "GPIO",
+      "path": "gpio",
+      "icon": "mdi:chip",
+      "type": "sections",
+      "max_columns": 3,
+      "header": {
+        "card": {
+          "type": "markdown",
+          "content": "# All usable GPIOs\n26 header GPIOs · Physical pin numbers are shown as P#\n\nRaw logic levels and current pin modes. Unconnected inputs may float. Tap a pin for its physical position and function. GPIO0/1 are reserved for HAT identification; power, ground and internal SoC pins are excluded."
+        }
+      },
+      "sections": [
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "GPIO 2–9",
+              "icon": "mdi:chip"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_2",
+              "name": "GPIO 2 · P3",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_3",
+              "name": "GPIO 3 · P5",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_4",
+              "name": "GPIO 4 · P7",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_5",
+              "name": "GPIO 5 · P29",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_6",
+              "name": "GPIO 6 · P31",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_7",
+              "name": "GPIO 7 · P26",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_8",
+              "name": "GPIO 8 · P24",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_9",
+              "name": "GPIO 9 · P21",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "GPIO 10–17",
+              "icon": "mdi:chip"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_10",
+              "name": "GPIO 10 · P19",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_11",
+              "name": "GPIO 11 · P23",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_12",
+              "name": "GPIO 12 · P32",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_13",
+              "name": "GPIO 13 · P33",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_14",
+              "name": "GPIO 14 · P8",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_15",
+              "name": "GPIO 15 · P10",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_16",
+              "name": "GPIO 16 · P36",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_17",
+              "name": "Boiler request · GPIO 17",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "grid",
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "GPIO 18–27",
+              "icon": "mdi:chip"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_18",
+              "name": "GPIO 18 · P12",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_19",
+              "name": "GPIO 19 · P35",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_20",
+              "name": "GPIO 20 · P38",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_21",
+              "name": "GPIO 21 · P40",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_22",
+              "name": "GPIO 22 · P15",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_23",
+              "name": "GPIO 23 · P16",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_24",
+              "name": "GPIO 24 · P18",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_25",
+              "name": "GPIO 25 · P22",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_26",
+              "name": "Delta input · GPIO 26",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_27",
+              "name": "Radiator pump · GPIO 27",
+              "icon": "mdi:chip",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "icon_tap_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 1
+              },
+              "state_content": [
+                "state",
+                "mode"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

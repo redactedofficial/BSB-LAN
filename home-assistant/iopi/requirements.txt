@@ -1,0 +1,2 @@
+paho-mqtt==2.1.0
+# GPIO Zero and lgpio are supplied by Raspberry Pi OS packages.

@@ -35,6 +35,16 @@ use the upstream `hostname:8883` broker syntax. This upstream version treats
 port 1883 as plaintext and other ports as TLS. Broker ACLs should limit
 Home Assistant and this gateway to their own state/command/discovery topics.
 
+## IO-PI relay interface
+
+[`iopi/`](iopi/README.md) adds a Raspberry Pi 3 B+ MQTT node with eight relay
+channels, an isolated thermostat contact input and observations of all 26 usable
+header GPIOs. Its native Home Assistant dashboard has Overview and GPIO views,
+plus a read-only BMS section linking to the IO-PI controls. The node coordinates
+boiler request R1 and radiator pump R2 with pump priming/run-on, fresh BSB feedback,
+a return-water cutoff and bounded runtime. Credentials and commissioned local
+configuration are excluded; the supplied example leaves outputs disabled.
+
 ## Seasonal estimated gas budget
 
 Import `seasonal-budget.yaml` as a Home Assistant automation blueprint. Create

@@ -1,0 +1,38 @@
+[Unit]
+Description=IOPI MQTT GPIO controller and header observer
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=notify
+NotifyAccess=main
+WatchdogSec=20
+User=iopi
+Group=iopi
+SupplementaryGroups=gpio video
+RuntimeDirectory=iopi
+RuntimeDirectoryMode=0700
+WorkingDirectory=/run/iopi
+ExecStart=/usr/bin/python3 -u /opt/iopi/iopi.py --config /etc/iopi/config.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=315
+UMask=0077
+LogsDirectory=iopi
+LogsDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

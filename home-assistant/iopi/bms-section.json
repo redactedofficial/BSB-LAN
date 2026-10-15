@@ -1,0 +1,87 @@
+{
+  "type": "grid",
+  "cards": [
+    {
+      "type": "heading",
+      "heading": "IO-PI · Heating interface",
+      "icon": "mdi:raspberry-pi"
+    },
+    {
+      "type": "tile",
+      "entity": "switch.bmsiopi_relay_1",
+      "name": "Boiler request · R1",
+      "icon": "mdi:fire",
+      "tap_action": {
+        "action": "more-info"
+      },
+      "icon_tap_action": {
+        "action": "none"
+      },
+      "grid_options": {
+        "columns": 6,
+        "rows": 1
+      }
+    },
+    {
+      "type": "tile",
+      "entity": "switch.bmsiopi_relay_2",
+      "name": "Radiator pump · R2",
+      "icon": "mdi:radiator",
+      "tap_action": {
+        "action": "more-info"
+      },
+      "icon_tap_action": {
+        "action": "none"
+      },
+      "grid_options": {
+        "columns": 6,
+        "rows": 1
+      }
+    },
+    {
+      "type": "tile",
+      "entity": "binary_sensor.bmsiopi_thermostat",
+      "name": "Delta demand",
+      "icon": "mdi:thermostat",
+      "tap_action": {
+        "action": "more-info"
+      },
+      "icon_tap_action": {
+        "action": "none"
+      },
+      "grid_options": {
+        "columns": 6,
+        "rows": 1
+      }
+    },
+    {
+      "type": "tile",
+      "entity": "sensor.bmsiopi_heating_status",
+      "name": "IO-PI control",
+      "icon": "mdi:information-outline",
+      "tap_action": {
+        "action": "more-info"
+      },
+      "icon_tap_action": {
+        "action": "none"
+      },
+      "grid_options": {
+        "columns": 6,
+        "rows": 1
+      }
+    },
+    {
+      "type": "markdown",
+      "content": "R1/R2 are the relay interface. Missing boiler feedback blocks IO-PI heat. The existing BSB/DHW controls remain separate."
+    },
+    {
+      "type": "button",
+      "name": "Open IO-PI",
+      "icon": "mdi:raspberry-pi",
+      "tap_action": {
+        "action": "navigate",
+        "navigation_path": "/dashboard-io-pi/overview"
+      }
+    }
+  ]
+}
