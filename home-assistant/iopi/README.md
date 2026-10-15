@@ -34,6 +34,17 @@ are published, including alternate-function pins, without changing their mux.
 
 ## Daily room heating and manual cycles
 
+Before commissioning R1, confirm the native boiler accepts its external HC1
+thermostat contact: R1 open must report no demand and R1 closed must report
+demand. Native HC1 Protection mode can reject that demand even while the Pi
+correctly drives the relay. Enable the boiler's normal heating mode (Comfort
+for this profile) and a compatible commissioned flow target using BSB-LAN,
+with acknowledged readback. A 45°C return cutoff needs flow-temperature headroom;
+50°C flow is the commissioned example. Do not change safety/OEM limits or the
+thermostat-input role to force operation. The node does not repeatedly overwrite
+native mode/flow choices; selecting Protection later remains an operator choice.
+The relay state reports a request, and native DHW priority can delay space heat.
+
 `daily-heating.yaml` replaces the legacy room-heating package in Home Assistant.
 Do not install it alongside that package: the existing helper IDs and Heating
 calendar are intentionally retained. The DHW package and its calendar are unchanged.
