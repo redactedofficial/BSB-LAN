@@ -1,5 +1,13 @@
 # BSB-LAN boiler control with IO-PI pump and Delta input
 
+Calendar enablement is persistent. Manual Heat once temporarily takes control
+without disabling the calendar; completion can return to the enabled schedule.
+Explicit Stop, direct Off commands and manual pump commands set the separate
+automatic-heating block. Clear that block, or switch the calendar off and on,
+to resume. Weather vetoes, event endings, automatic cutoffs and reconnects never
+turn the calendar switch off. A native-controller stop command can also latch
+the automatic block; the native status explains the underlying failure.
+
 The BSB transport (`boiler_control: bsb_lan`) keeps physical R1 LOW and rejects its
 relay commands. All manual/scheduled boiler requests use the BMS-side
 `bsb_heat_control.py` service. IO-PI supplies Delta demand, pump priming, fresh
@@ -100,8 +108,8 @@ blocks both automatic requests.
 In the relay transport, R1 ON requests an explicit bounded Manual cycle; Off ends it. The local coordinator primes
 R2 for five seconds before R1, stops at the return-water cutoff (default 45°C),
 then keeps R2 on for 120 seconds. Manual overrides Delta/calendar comfort demand
-and pauses the daily master; it never overrides native boiler protections.
-Independent R2 control also pauses automatic ownership. GPIO26 uses a pull-up,
+and temporarily overrides the daily controller; it never overrides native boiler protections.
+Independent R2 control blocks automatic ownership while preserving calendar enablement. GPIO26 uses a pull-up,
 but `thermostat.connected` stays false until its isolated jumper wiring is fitted.
 The raw pin can be observed; the heat-demand entity remains unavailable meanwhile.
 Changing a raw GPIO level never starts heating.

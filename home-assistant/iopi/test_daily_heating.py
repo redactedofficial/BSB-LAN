@@ -110,5 +110,30 @@ class DailyTests(unittest.TestCase):
         self.assertNotIn('text.set_value', text.replace('input_text.set_value', ''))
         self.assertNotIn('bsb_dhw', text)
 
+    def test_calendar_enablement_is_never_implicitly_changed(self):
+        def walk(value):
+            if isinstance(value, dict):
+                yield value
+                for child in value.values(): yield from walk(child)
+            elif isinstance(value, list):
+                for child in value: yield from walk(child)
+        for step in walk({'script': PACKAGE['script'], 'automation': PACKAGE['automation']}):
+            if step.get('action') in ('input_boolean.turn_on', 'input_boolean.turn_off', 'input_boolean.toggle'):
+                self.assertNotEqual(step.get('target', {}).get('entity_id'), 'input_boolean.bsb_calendar_enabled')
+
+    def test_explicit_stop_blocks_automatic_without_disabling_calendar(self):
+        stop = SEQUENCE[1]['choose'][1]['sequence']
+        self.assertEqual(stop[0]['action'], 'input_boolean.turn_on')
+        self.assertEqual(stop[0]['target']['entity_id'], 'input_boolean.iopi_heating_blocked')
+        self.assertEqual(stop[1]['data']['payload'], 'Off')
+
+    def test_mode_completion_does_not_trigger_automatic_pause(self):
+        pause = next(a for a in PACKAGE['automation'] if a['id']=='iopi_manual_control_pauses_daily_heating')
+        self.assertEqual(pause['triggers'], [{'trigger':'mqtt','topic':'iopi/bmsiopi/heating/operator_action'}])
+        template = pause['conditions'][0]['value_template']
+        for action, age, expected in [('stop',0,True),('pump_manual',0,True),('stop',11,False),('completed',0,False)]:
+            actual = self.env.from_string(template).render(trigger={'payload_json':{'action':action,'at':self.now.timestamp()-age}})
+            self.assertEqual(actual, expected)
+
 if __name__ == '__main__':
     unittest.main()

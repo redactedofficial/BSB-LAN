@@ -18,7 +18,7 @@ import subprocess
 import threading
 import time
 
-VERSION = '0.3.0'
+VERSION = '0.3.1'
 LOG = logging.getLogger('iopi')
 # BCM GPIO -> physical 40-pin header position. GPIO0/1 are reserved for HAT ID.
 PINS = {2: 3, 3: 5, 4: 7, 5: 29, 6: 31, 7: 26, 8: 24, 9: 21,
@@ -471,6 +471,11 @@ class Node:
     def status(self, key, payload, retain=False):
         return self.pub(f'iopi/bmsiopi/{key}', payload, retain)
 
+    def operator_action(self, action):
+        # Command intent is separate from resulting mode. Cutoffs, reconnects
+        # and calendar gaps must not be mistaken for someone pressing Stop.
+        self.status('heating/operator_action', json.dumps({'action': action, 'at': time.time()}))
+
     def on_connect(self, client, userdata, flags, reason, properties):
         if reason.is_failure:
             LOG.error('mqtt event=connection_rejected')
@@ -642,6 +647,8 @@ class Node:
                     elif event[0] == 'setting':
                         if event[3].endswith('/mode/set'):
                             self.heater.select(event[4])
+                            if event[4] == 'Off':
+                                self.operator_action('stop')
                         elif event[3].endswith('/policy/set'):
                             self.heater.daily_policy(event[4])
                         else:
@@ -674,6 +681,8 @@ class Node:
                             # Read hardware again before acknowledging a changed drive state.
                             self.last_observation = observe()
                         self.last_result[rid] = result
+                        if rid == 2 and result in ('accepted', 'pump_run_on'):
+                            self.operator_action('pump_manual')
                         LOG.info('relay=%d request=%s result=%s', rid, on, result)
                         next_publish = 0
                 if now >= next_publish and self.connected.is_set():

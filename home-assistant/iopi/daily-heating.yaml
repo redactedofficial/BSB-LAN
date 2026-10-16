@@ -260,7 +260,7 @@ script:
       data:
         operation: start
   bsb_manual_heat_stop:
-    alias: BSB-LAN stop heating and pause daily schedule
+    alias: BSB-LAN stop heating and block automatic heating
     mode: single
     sequence:
     - action: script.bsb_heat_control
@@ -279,9 +279,6 @@ script:
     - choose:
       - conditions: '{{ operation == ''start'' }}'
         sequence:
-        - action: input_boolean.turn_off
-          target:
-            entity_id: input_boolean.bsb_calendar_enabled
         - action: mqtt.publish
           data:
             topic: iopi/bmsiopi/heating/mode/set
@@ -293,9 +290,9 @@ script:
         - stop: Manual once requested; local node owns cutoff and deadline
       - conditions: '{{ operation == ''stop'' }}'
         sequence:
-        - action: input_boolean.turn_off
+        - action: input_boolean.turn_on
           target:
-            entity_id: input_boolean.bsb_calendar_enabled
+            entity_id: input_boolean.iopi_heating_blocked
         - action: mqtt.publish
           data:
             topic: iopi/bmsiopi/heating/mode/set
@@ -418,20 +415,33 @@ automation:
     data:
       operation: reconcile
 - id: iopi_manual_control_pauses_daily_heating
-  alias: IO-PI manual override pauses daily heating
+  alias: IO-PI explicit stop blocks automatic heating
   mode: queued
   triggers:
+  - trigger: mqtt
+    topic: iopi/bmsiopi/heating/operator_action
+  conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.payload_json.action | default('') in ['stop', 'pump_manual']
+         and is_number(trigger.payload_json.at | default(''))
+         and 0 <= as_timestamp(now()) - (trigger.payload_json.at | float(0)) < 10 }}
+  actions:
+  - action: input_boolean.turn_on
+    target:
+      entity_id: input_boolean.iopi_heating_blocked
+- id: iopi_calendar_enable_resumes_automatic
+  alias: IO-PI calendar enable clears the automatic pause
+  mode: single
+  triggers:
   - trigger: state
-    entity_id: select.bmsiopi_heating_mode
-    to: Manual
-  - trigger: state
-    entity_id: select.bmsiopi_heating_mode
-    from: Thermostat
-    to: 'Off'
+    entity_id: input_boolean.bsb_calendar_enabled
+    from: 'off'
+    to: 'on'
   actions:
   - action: input_boolean.turn_off
     target:
-      entity_id: input_boolean.bsb_calendar_enabled
+      entity_id: input_boolean.iopi_heating_blocked
 - id: iopi_mirror_heating_state
   alias: IO-PI heating status in BMS
   mode: restart

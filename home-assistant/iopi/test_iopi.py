@@ -132,6 +132,17 @@ class Tests(unittest.TestCase):
         self.outputs.tick()
         self.assertEqual(self.hw.writes, [(2, True), (2, False)])
 
+    def test_stop_intent_is_a_fresh_nonretained_event_not_a_mode_state(self):
+        node = Node.__new__(Node)
+        sent = []
+        node.status = lambda topic, payload, retain=False: sent.append((topic, json.loads(payload), retain))
+        node.operator_action('stop')
+        topic, payload, retained = sent[0]
+        self.assertEqual(topic, 'heating/operator_action')
+        self.assertEqual(payload['action'], 'stop')
+        self.assertIsInstance(payload['at'], float)
+        self.assertFalse(retained)
+
     def test_stop_releases_boiler_before_pump_run_on(self):
         self.start()
         self.heater.stop()

@@ -22,8 +22,8 @@ def read_tile(entity, name, icon='mdi:chip'):
 
 
 def mode_button(name, mode, icon):
-    action = {'action': 'perform-action', 'perform_action': 'mqtt.publish',
-              'data': {'topic': 'iopi/bmsiopi/heating/mode/set', 'payload': mode, 'retain': False}}
+    action = {'action': 'perform-action', 'perform_action':
+              'script.bsb_manual_heat_stop' if mode == 'Off' else 'script.bsb_manual_heat_start'}
     if mode != 'Off':
         action['confirmation'] = {'text': f'{name}? This can start the radiator pump and request boiler heat.'}
     return {'type': 'button', 'name': name, 'icon': icon, 'tap_action': action,
@@ -52,6 +52,8 @@ heat_cards = [heading('Heating · BSB-LAN + IO-PI', 'mdi:radiator'),
      "after that cutoff while Delta still calls. Missing daily permission stops heat within 75 seconds, "
      "with two minutes of pump run-on after the boiler request stops. R1 stays off. "
      "Manual Heat once is an explicit Delta/calendar override, bounded to one hour and the manual return cutoff. "
+     "The calendar stays enabled during a manual cycle and can resume afterward. Stop heating blocks automatic heating; "
+     "clear Block automatic heating, or switch the calendar off and on, to resume. "
      "{% if states('sensor.bmsiopi_return_water') in ['unknown','unavailable'] %}"
      "**Boiler feedback is unavailable; boiler charging is blocked. Allowed Delta demand can still circulate stored heat.**{% endif %}\n\n"
      "{% if states('binary_sensor.bmsiopi_thermostat') in ['unknown','unavailable'] %}"
@@ -65,7 +67,7 @@ relay_cards = [heading('Relay controls · R1–R8', 'mdi:electric-switch'),
     {'type': 'markdown', 'content': 'HIGH trigger · OFF = LOW GPIO drive. '
      'State is GPIO readback, without contact/load feedback. '
      'R3–R8 and independent pump operation use five-minute leases. '
-     'R1 is reserved OFF; boiler starts use BSB-LAN. Manual pump control pauses the daily schedule.'}]
+     'R1 is reserved OFF; boiler starts use BSB-LAN. Manual pump control blocks automatic heating while leaving the calendar enabled.'}]
 for rid in range(1, 9):
     if rid == 1:
         relay_cards.append(read_tile('sensor.bmsiopi_gpio_17', 'R1 · Reserved off', 'mdi:electric-switch'))
