@@ -121,6 +121,17 @@ class Tests(unittest.TestCase):
         self.heater.tick(None)
         self.assertEqual(self.hw.writes, [(2, True), (1, True)])
 
+    def test_bsb_transport_never_energises_physical_boiler_relay(self):
+        self.config['boiler_control'] = 'bsb_lan'
+        validate(self.config)
+        self.start()
+        self.assertTrue(self.outputs.state[1])  # Logical request for BMS.
+        self.assertEqual(self.hw.writes, [(2, True)])
+        self.heater.stop()
+        self.clock.now += 121
+        self.outputs.tick()
+        self.assertEqual(self.hw.writes, [(2, True), (2, False)])
+
     def test_stop_releases_boiler_before_pump_run_on(self):
         self.start()
         self.heater.stop()

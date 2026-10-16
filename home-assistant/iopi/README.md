@@ -1,3 +1,34 @@
+# BSB-LAN boiler control with IO-PI pump and Delta input
+
+The BSB transport (`boiler_control: bsb_lan`) keeps physical R1 LOW and rejects its
+relay commands. All manual/scheduled boiler requests use the BMS-side
+`bsb_heat_control.py` service. IO-PI supplies Delta demand, pump priming, fresh
+return/error supervision and expiring charging requests. R2 runs the radiator
+pump. A requested state is distinct from actual native burner status.
+
+The bridge accepts fresh, non-retained requests only while R2 drive readback is
+ON and R1 OFF. It journals original settings, checks H5 role 18 and an open
+physical contact, confirms HC1 Protection, sets flow to return target + 5 C
+(maximum 60 C, also below the native HC1 maximum), temporarily interprets the
+open room-thermostat input as normally closed, then selects Comfort. It changes
+only 700, 742 and 5978; native OEM/safety limits and DHW remain independent.
+
+Stop, stale input, cutoff or error requests Protection and restores owned H5/flow
+settings. A failed stop retains its journal and retries; interrupted service
+starts recover to Off. Native BSB settings have **no expiring device lease**:
+a complete BMS/gateway communication outage can prevent the software stop.
+Do not describe the return cutoff as a hard temperature cap or a hardware safety.
+
+Install `bsbheat.service` on BMS with paho-mqtt, its protected MQTT configuration
+at `/etc/bsbheat/mqtt.json`, and a scoped identity able to read/poll the listed
+parameters, write only 700/742/5978, publish its two discovery/status entities,
+read IO-PI telemetry and send its stop command. The unit uses an existing Python
+runtime at `/opt/rms/.venv/bin/python`; adapt this path to the deployment.
+`config.example.json` retains the uncommissioned relay profile; BSB transport
+requires this separate service before commissioning outputs.
+
+Below describes the original relay transport where explicitly stated.
+
 # IO-PI
 
 Raspberry Pi 3 B+ node with verified TLS MQTT, native Home Assistant discovery,
@@ -66,7 +97,7 @@ while Delta and the short-lived server permission remain valid. A missing boiler
 reply blocks R1 but still permits that circulation; a confirmed boiler error
 blocks both automatic requests.
 
-R1 ON requests an explicit bounded Manual cycle; Off ends it. The local coordinator primes
+In the relay transport, R1 ON requests an explicit bounded Manual cycle; Off ends it. The local coordinator primes
 R2 for five seconds before R1, stops at the return-water cutoff (default 45°C),
 then keeps R2 on for 120 seconds. Manual overrides Delta/calendar comfort demand
 and pauses the daily master; it never overrides native boiler protections.

@@ -19,7 +19,7 @@ input_number:
   bsb_calendar_hot_target:
     name: Calendar event return target
     min: 30
-    max: 50
+    max: 55
     step: 1
     mode: box
     unit_of_measurement: °C
@@ -253,14 +253,14 @@ template:
       received_at: '{{ as_timestamp(now()) }}'
 script:
   bsb_manual_heat_start:
-    alias: IO-PI manual heating once
+    alias: BSB-LAN manual heating once with IO-PI pump
     mode: single
     sequence:
     - action: script.bsb_heat_control
       data:
         operation: start
   bsb_manual_heat_stop:
-    alias: IO-PI stop heating and pause daily schedule
+    alias: BSB-LAN stop heating and pause daily schedule
     mode: single
     sequence:
     - action: script.bsb_heat_control
@@ -442,7 +442,7 @@ automation:
     entity_id:
     - select.bmsiopi_heating_mode
     - sensor.bmsiopi_heating_status
-    - switch.bmsiopi_relay_1
+    - binary_sensor.bmsiopi_boiler_request
     - switch.bmsiopi_relay_2
   actions:
   - action: input_text.set_value

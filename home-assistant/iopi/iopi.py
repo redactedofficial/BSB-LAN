@@ -18,7 +18,7 @@ import subprocess
 import threading
 import time
 
-VERSION = '0.2.0'
+VERSION = '0.3.0'
 LOG = logging.getLogger('iopi')
 # BCM GPIO -> physical 40-pin header position. GPIO0/1 are reserved for HAT ID.
 PINS = {2: 3, 3: 5, 4: 7, 5: 29, 6: 31, 7: 26, 8: 24, 9: 21,
@@ -33,6 +33,8 @@ LINE = re.compile(r'^\s*(\d+):\s+(\S+)\s+.*?\|\s*(hi|lo|--)\s*//\s*(.*?)\s*=\s*(
 def validate(config):
     if not isinstance(config, dict) or config.get('device_id') != 'bmsiopi':
         raise ValueError('Expected device_id bmsiopi')
+    if config.get('boiler_control', 'relay') not in ('relay', 'bsb_lan'):
+        raise ValueError('Unknown boiler control transport')
     mqtt = config.get('mqtt', {})
     for key in ('host', 'username', 'password_file', 'ca_file'):
         if not isinstance(mqtt.get(key), str) or not mqtt[key]:
@@ -156,9 +158,13 @@ class Outputs:
     def write(self, rid, on):
         if self.state.get(rid) is on:
             return
-        self.hardware.set(rid, on)
+        # In BSB mode channel 1 is a logical request only. Its physical GPIO
+        # remains LOW; a separately supervised BMS service controls the boiler.
+        if rid != 1 or self.config.get('boiler_control', 'relay') == 'relay':
+            self.hardware.set(rid, on)
         self.state[rid] = on
-        LOG.info('relay=%d state=%s source=gpio_readback', rid, 'ON' if on else 'OFF')
+        LOG.info('channel=%d state=%s transport=%s', rid, 'ON' if on else 'OFF',
+                 self.config.get('boiler_control', 'relay') if rid == 1 else 'gpio')
         if on:
             self.started[rid] = self.clock()
         else:
@@ -417,6 +423,9 @@ def discovery(config):
     row = base('sensor', 'daily_permission', 'Daily heating permission', 'system_available')
     row.update(expire_after=20, icon='mdi:calendar-check')
     yield 'homeassistant/sensor/bmsiopi/daily_permission/config', row
+    row = base('binary_sensor', 'boiler_request', 'Boiler heat request', 'system_available')
+    row.update(expire_after=20, icon='mdi:fire')
+    yield 'homeassistant/binary_sensor/bmsiopi/boiler_request/config', row
     for key, name in [('status', 'I/O configuration'), ('temperature', 'CPU temperature'),
                        ('power', 'Power status'), ('uptime', 'Uptime')]:
         row = base('sensor', key, name, 'system_available')
@@ -528,18 +537,21 @@ class Node:
                 self.status(f'gpio_{gpio}/attributes', json.dumps(rows[gpio]))
         for r in self.config['relays']:
             rid, key = r['id'], f'relay_{r["id"]}'
+            native = rid == 1 and self.config.get('boiler_control') == 'bsb_lan'
             available = rid in self.outputs.enabled and not self.outputs.fault and rows is not None
             if available:
-                expected = 'Low' if self.outputs.state[rid] == r['active_low'] else 'High'
+                drive = False if native else self.outputs.state[rid]
+                expected = 'Low' if drive == r['active_low'] else 'High'
                 available = rows[r['gpio']]['mode'] == 'Output' and rows[r['gpio']]['level'] == expected
-            self.status(f'{key}/available', 'online' if available else 'offline', True)
+            self.status(f'{key}/available', 'online' if available and not native else 'offline', True)
             if available:
-                self.status(f'{key}/state', 'ON' if self.outputs.state[rid] else 'OFF')
+                self.status(f'{key}/state', 'ON' if drive else 'OFF')
             self.status(f'{key}/attributes', json.dumps({
                 'gpio': r['gpio'], 'physical_pin': PINS[r['gpio']],
                 'commissioned': r['enabled'], 'active_low': r['active_low'],
                 'last_result': self.last_result.get(rid, 'not_commissioned' if not r['enabled'] else 'idle'),
                 'state_source': 'GPIO drive readback; no contact/load feedback',
+                'reserved_off': native,
                 'lease_seconds': self.config['lease_seconds']}))
         heat = self.hardware.thermostat()
         self.status('thermostat/available', 'online' if heat is not None else 'offline', True)
@@ -562,6 +574,13 @@ class Node:
             pass
         self.status('uptime/state', str(int(time.monotonic() - self.born)))
         self.status('heating_mode/state', self.heater.mode)
+        self.status('boiler_request/state', 'ON' if self.outputs.state.get(1) else 'OFF')
+        if self.config.get('boiler_control') == 'bsb_lan':
+            target = (self.heater.permission['target'] if self.heater.mode == 'Thermostat'
+                      and self.heater.permission else self.heater.cutoff)
+            self.status('heating/boiler_request', json.dumps({
+                'active': bool(self.outputs.state.get(1)), 'expires': time.time() + 15,
+                'cutoff': target, 'flow': min(target + 5, 60), 'mode': self.heater.mode}))
         self.status('return_cutoff/state', str(self.heater.cutoff))
         self.status('heating_status/state', self.heater.result)
         reason = self.heater.policy_reason()
@@ -644,7 +663,8 @@ class Node:
                             result = 'readback_unavailable'
                         else:
                             if rid == 1:
-                                result = self.heater.select('Manual' if on else 'Off')
+                                result = ('reserved_off_use_heating_controls' if self.config.get('boiler_control') == 'bsb_lan'
+                                          else self.heater.select('Manual' if on else 'Off'))
                             else:
                                 if rid == 2 and on and self.heater.mode == 'Thermostat':
                                     self.heater.stop('Manual pump control')

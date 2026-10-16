@@ -1,0 +1,35 @@
+[Unit]
+Description=BSB-LAN circuit-1 heating controller (IO-PI pump and Delta)
+Wants=network-online.target
+After=network-online.target mosquitto.service
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=notify
+NotifyAccess=main
+WatchdogSec=60
+User=bsbheat
+Group=bsbheat
+StateDirectory=bsbheat
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/bsbheat
+ExecStart=/opt/rms/.venv/bin/python -u /opt/bms/iopi/bsb_heat_control.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

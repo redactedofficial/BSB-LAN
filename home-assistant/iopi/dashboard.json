@@ -19,7 +19,7 @@
           "cards": [
             {
               "type": "heading",
-              "heading": "Heating · IO-PI",
+              "heading": "Heating · BSB-LAN + IO-PI",
               "icon": "mdi:radiator"
             },
             {
@@ -49,6 +49,14 @@
                 {
                   "entity": "sensor.bmsiopi_heating_status",
                   "name": "Control status"
+                },
+                {
+                  "entity": "sensor.bmsiopi_bsb_control",
+                  "name": "BSB-LAN request"
+                },
+                {
+                  "entity": "sensor.bmsiopi_bsb_native_status",
+                  "name": "Actual boiler status"
                 },
                 {
                   "entity": "sensor.bmsiopi_return_water",
@@ -111,7 +119,7 @@
             },
             {
               "type": "markdown",
-              "content": "**{{ states('sensor.bmsiopi_heating_status') }}**\n\n**Daily heating = Delta demand + calendar/cold allowance + no weather/block veto.** Thermostat mode runs R2 only when those conditions agree. R1 can then request a buffer recharge with fresh boiler feedback, pump priming and a return cutoff. R2 keeps distributing stored heat after that cutoff while Delta still calls. Missing daily permission stops heat within 75 seconds, with two minutes of pump run-on after R1 stops. Manual Heat once is an explicit Delta/calendar override, bounded to one hour and the manual return cutoff. {% if states('sensor.bmsiopi_return_water') in ['unknown','unavailable'] %}**Boiler feedback is unavailable; R1 is blocked. Allowed Delta demand can still circulate stored heat.**{% endif %}\n\n{% if states('binary_sensor.bmsiopi_thermostat') in ['unknown','unavailable'] %}**Delta input is not commissioned or unavailable.** {% endif %}GPIO26's raw level is not a heat-demand reading. Native boiler control still determines burner operation. [Building heating overview](/bms-overview/overview)"
+              "content": "**{{ states('sensor.bmsiopi_heating_status') }}**\n\n**Daily heating = Delta demand + calendar/cold allowance + no weather/block veto.** Thermostat mode runs R2 only when those conditions agree. BSB-LAN can then request a buffer recharge with fresh boiler feedback, pump priming and a return cutoff. R2 keeps distributing stored heat after that cutoff while Delta still calls. Missing daily permission stops heat within 75 seconds, with two minutes of pump run-on after the boiler request stops. R1 stays off. Manual Heat once is an explicit Delta/calendar override, bounded to one hour and the manual return cutoff. {% if states('sensor.bmsiopi_return_water') in ['unknown','unavailable'] %}**Boiler feedback is unavailable; boiler charging is blocked. Allowed Delta demand can still circulate stored heat.**{% endif %}\n\n{% if states('binary_sensor.bmsiopi_thermostat') in ['unknown','unavailable'] %}**Delta input is not commissioned or unavailable.** {% endif %}GPIO26's raw level is not a heat-demand reading. Native boiler control still determines burner operation. The return cutoff needs BMS and BSB-LAN communication; a complete outage can prevent a software stop. [Building heating overview](/bms-overview/overview)"
             }
           ]
         },
@@ -125,29 +133,22 @@
             },
             {
               "type": "markdown",
-              "content": "HIGH trigger · OFF = LOW GPIO drive. State is GPIO readback, without contact/load feedback. R3–R8 and independent pump operation use five-minute leases. Manual R1/R2 control pauses the daily schedule."
+              "content": "HIGH trigger · OFF = LOW GPIO drive. State is GPIO readback, without contact/load feedback. R3–R8 and independent pump operation use five-minute leases. R1 is reserved OFF; boiler starts use BSB-LAN. Manual pump control pauses the daily schedule."
             },
             {
-              "type": "button",
-              "entity": "switch.bmsiopi_relay_1",
-              "name": "R1 · Boiler request",
-              "icon": "mdi:fire",
-              "show_state": true,
+              "type": "tile",
+              "entity": "sensor.bmsiopi_gpio_17",
+              "name": "R1 · Reserved off",
+              "icon": "mdi:electric-switch",
               "tap_action": {
-                "action": "toggle",
-                "confirmation": {
-                  "text": "Change R1 · Boiler request? This switches its connected circuit; pump run-on may delay OFF."
-                }
+                "action": "more-info"
               },
-              "hold_action": {
-                "action": "none"
-              },
-              "double_tap_action": {
+              "icon_tap_action": {
                 "action": "none"
               },
               "grid_options": {
                 "columns": 6,
-                "rows": 2
+                "rows": 1
               }
             },
             {
@@ -694,7 +695,7 @@
             {
               "type": "tile",
               "entity": "sensor.bmsiopi_gpio_17",
-              "name": "Boiler request · GPIO 17",
+              "name": "GPIO 17 · P11",
               "icon": "mdi:chip",
               "tap_action": {
                 "action": "more-info"
