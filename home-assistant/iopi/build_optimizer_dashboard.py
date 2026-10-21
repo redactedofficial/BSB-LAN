@@ -1,5 +1,6 @@
 """Native Home Assistant panels: calm overview, progressively disclosed planning details."""
 import json
+import copy
 from pathlib import Path
 
 def heading(name,icon): return {'type':'heading','heading':name,'icon':icon}
@@ -34,6 +35,11 @@ def build(bms_source,iopi_source,outdir):
     summary=section([heading('Heating now','mdi:home-thermometer'),markdown(SUMMARY),
         tile('sensor.bsb_optimizer_daily_total','Gas today · fuel estimate','mdi:meter-gas'),*nav])
     overview=bms['views'][0]
+    primary_names={'Pump only',"Fuck, it's so cold",'Pump: Auto','Stop heating & pump'}
+    primary=[copy.deepcopy(c) for s in overview.get('sections',[]) for c in s.get('cards',[])
+             if c.get('name') in primary_names]
+    # Reuse the exact established actions and boost confirmation at the top of the panel.
+    if primary: summary['cards'][2:2]=primary
     overview['sections']=[s for s in overview.get('sections',[]) if not any(c.get('heading')=='Heating now' for c in s.get('cards',[]))]
     overview['sections'].insert(0,summary)
     def replace_legacy(value):
@@ -90,6 +96,8 @@ Hourly coverage: **{{ state_attr(r,'hourly_forecast_hours') or 0 }} hours**. Mis
        section([heading('Weather outlook','mdi:weather-partly-cloudy'),markdown(days),
           tile('sensor.bsb_optimizer_confidence','Forecast confidence'),
           markdown(REPORT+"**Tank:** {{ state_attr(r,'solar_evidence') or 'Source unconfirmed' }}. B3 is a single probe; usable tank energy remains unknown until representative sensors and the hydraulic path are verified.")]) ]}
+    stop=next((c for c in primary if c.get('name')=='Stop heating & pump'),None)
+    if stop: heatview['sections'][0]['cards'].insert(2,copy.deepcopy(stop))
     gas=REPORT+"""
 {% set a = state_attr(r,'annual') or {} %}
 **{{ a.get('status','Billing data not configured') }}**
@@ -114,7 +122,7 @@ Fuel counters are boiler estimates. They do not measure delivered radiator heat.
 {% set rows=state_attr(r,'telemetry') or {} %}
 Parameter | Value | Quality · acquired
 ---|---|---
-{% for key,row in rows.items() %}{{ key }} | {{ row.value if row.value != none else 'Unavailable' }} {{ row.unit }} | {{ row.quality if row.fresh else 'stale' }} · {{ row.at | timestamp_custom('%H:%M:%S %Z') }}
+{% for key,row in rows.items() %}{{ key }} | {{ row.value if row.value != none else 'Unavailable' }} {{ row.unit }} | {{ row.quality }} · {{ row.at | timestamp_custom('%H:%M:%S %Z') }}
 {% endfor %}
 """
     diagview={'title':'Heating diagnostics','path':'heating-diagnostics','type':'sections','max_columns':3,'icon':'mdi:stethoscope','sections':[

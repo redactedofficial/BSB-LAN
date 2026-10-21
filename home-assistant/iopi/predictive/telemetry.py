@@ -190,4 +190,5 @@ class Telemetry:
 
     def report(self, now):
         return {k:{'value':r.value if r.fresh(now) else None,'at':r.at,'unit':r.unit,
-                   'quality':r.quality,'fresh':r.fresh(now)} for k,r in self.readings.items()}
+                   'quality':'unavailable' if r.value is None else r.quality if r.fresh(now) else 'stale',
+                   'fresh':r.fresh(now)} for k,r in self.readings.items()}

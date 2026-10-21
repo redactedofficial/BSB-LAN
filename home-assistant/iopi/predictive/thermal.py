@@ -80,7 +80,8 @@ class Identification:
         return {'h_kw_k':float(h),'c_kwh_k':float(c),'solar_kw_per_kw_m2':float(self.theta[2]*c),
                 'internal_kw':float(self.theta[3]*c),'wind_h':float(self.theta[4]*c),
                 'calibrated':bool(ready),'samples':self.n,'rmse_c_per_hour':self.rmse,
-                'quality':'model_estimated','covariance_diagonal':np.diag(self.p).tolist()}
+                'quality':'model_estimated' if self.n else 'uncalibrated_initial_parameters',
+                'covariance_diagonal':np.diag(self.p).tolist()}
 
     @property
     def rmse(self): return math.sqrt(self.squared_error/self.n) if self.n else None
