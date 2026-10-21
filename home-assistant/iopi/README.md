@@ -227,3 +227,10 @@ blocks before using it on another broker.
 Sources: [Pi GPIO](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio),
 [GPIO Zero](https://gpiozero.readthedocs.io/en/stable/api_output.html),
 [MQTT discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery).
+# Production predictive heating
+
+The existing app now includes the production predictive policy worker, calibrated
+RC model, annual billing ledger, isolated replay tools and native HA planning
+panels. See [PREDICTIVE-HEATING.md](PREDICTIVE-HEATING.md) for configuration,
+physical data requirements, safety boundaries, deployment and rollback.
+

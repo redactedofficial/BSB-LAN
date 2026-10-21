@@ -5,3 +5,7 @@ __pycache__/
 *.log
 config.json
 DEPLOYMENT.local.md
+.optimizer-venv/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm

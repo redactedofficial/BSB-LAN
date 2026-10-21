@@ -38,6 +38,8 @@ manual_buttons = [
 
 
 heat_cards = [heading('Heating · BSB-LAN + IO-PI', 'mdi:radiator'),
+    {'type':'button','name':'Heating plan','icon':'mdi:chart-timeline-variant',
+     'tap_action':{'action':'navigate','navigation_path':'/bms-overview/heating-plan'}},
     *manual_buttons,
     {'type': 'entities', 'show_header_toggle': False, 'entities': [
         {'entity': 'select.bmsiopi_heating_mode', 'name': 'Heating mode'},

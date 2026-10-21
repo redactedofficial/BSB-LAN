@@ -24,6 +24,15 @@
             },
             {
               "type": "button",
+              "name": "Heating plan",
+              "icon": "mdi:chart-timeline-variant",
+              "tap_action": {
+                "action": "navigate",
+                "navigation_path": "/bms-overview/heating-plan"
+              }
+            },
+            {
+              "type": "button",
               "name": "Pump only",
               "icon": "mdi:pump",
               "tap_action": {

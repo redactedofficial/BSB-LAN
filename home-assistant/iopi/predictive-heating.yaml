@@ -1,0 +1,144 @@
+input_boolean:
+  bsb_optimizer_initialized:
+    name: Optimizer preferences initialized
+input_select:
+  bsb_optimizer_mode:
+    name: Optimizer mode
+    options:
+    - production
+    - shadow
+    - disabled
+    icon: mdi:brain
+input_number:
+  bsb_optimizer_comfort:
+    name: Room comfort
+    min: 12
+    max: 23
+    step: 0.5
+    mode: box
+    unit_of_measurement: °C
+  bsb_optimizer_preferred:
+    name: Preferred daily gas
+    min: 0
+    max: 50
+    step: 0.5
+    mode: box
+    unit_of_measurement: m³
+  bsb_optimizer_ceiling:
+    name: Soft daily gas ceiling
+    min: 0
+    max: 100
+    step: 0.5
+    mode: box
+    unit_of_measurement: m³
+  bsb_optimizer_risk:
+    name: Forecast caution
+    min: 0
+    max: 2
+    step: 0.1
+    mode: box
+mqtt:
+  sensor:
+  - name: BSB predictive report
+    unique_id: bsb_predictive_report
+    state_topic: bms/heating_optimizer/state
+    value_template: '{{ value_json.status }}'
+    json_attributes_topic: bms/heating_optimizer/state
+    expire_after: 120
+  - name: BSB predictive recommendation
+    unique_id: bsb_predictive_recommendation
+    state_topic: bms/heating_optimizer/recommendation
+    value_template: '{{ value_json.mode }}'
+    json_attributes_topic: bms/heating_optimizer/recommendation
+    expire_after: 90
+automation:
+- id: bsb_optimizer_initialize
+  alias: BMS optimizer initial preferences
+  triggers:
+  - trigger: homeassistant
+    event: start
+  actions:
+  - condition: state
+    entity_id: input_boolean.bsb_optimizer_initialized
+    state: 'off'
+  - action: input_number.set_value
+    target:
+      entity_id: input_number.bsb_optimizer_comfort
+    data:
+      value: 18
+  - action: input_number.set_value
+    target:
+      entity_id: input_number.bsb_optimizer_preferred
+    data:
+      value: 5
+  - action: input_number.set_value
+    target:
+      entity_id: input_number.bsb_optimizer_ceiling
+    data:
+      value: 7
+  - action: input_number.set_value
+    target:
+      entity_id: input_number.bsb_optimizer_risk
+    data:
+      value: 0.5
+  - action: input_boolean.turn_on
+    target:
+      entity_id: input_boolean.bsb_optimizer_initialized
+- id: bsb_optimizer_weather
+  alias: BMS optimizer forecast refresh
+  mode: single
+  triggers:
+  - trigger: homeassistant
+    event: start
+  - trigger: time_pattern
+    minutes: /15
+  actions:
+  - variables:
+      hourly_result: {}
+      daily_result: {}
+  - action: weather.get_forecasts
+    continue_on_error: true
+    target:
+      entity_id: weather.forecast_home
+    data:
+      type: hourly
+    response_variable: hourly_result
+  - action: weather.get_forecasts
+    continue_on_error: true
+    target:
+      entity_id: weather.forecast_home
+    data:
+      type: daily
+    response_variable: daily_result
+  - action: mqtt.publish
+    data:
+      topic: bms/heating_optimizer/weather
+      retain: false
+      payload: '{{ {''generated_at'': now().isoformat(), ''source'': ''Home Assistant: weather.forecast_home'',
+        ''temperature_unit'': state_attr(''weather.forecast_home'',''temperature_unit''), ''wind_speed_unit'': state_attr(''weather.forecast_home'',''wind_speed_unit''),
+        ''current_temperature'': state_attr(''weather.forecast_home'',''temperature''), ''hourly'': hourly_result.get(''weather.forecast_home'',{}).get(''forecast'',[]),
+        ''daily'': daily_result.get(''weather.forecast_home'',{}).get(''forecast'',[])} | to_json }}'
+- id: bsb_optimizer_settings
+  alias: BMS optimizer preferences
+  mode: restart
+  triggers:
+  - trigger: homeassistant
+    event: start
+  - trigger: time_pattern
+    minutes: /5
+  - trigger: state
+    entity_id:
+    - input_select.bsb_optimizer_mode
+    - input_number.bsb_optimizer_comfort
+    - input_number.bsb_optimizer_preferred
+    - input_number.bsb_optimizer_ceiling
+    - input_number.bsb_optimizer_risk
+  actions:
+  - action: mqtt.publish
+    data:
+      topic: bms/heating_optimizer/settings
+      retain: false
+      payload: '{{ {''mode'': states(''input_select.bsb_optimizer_mode''), ''comfort_c'': states(''input_number.bsb_optimizer_comfort'')
+        | float(18), ''preferred_daily_m3'': states(''input_number.bsb_optimizer_preferred'') | float(5), ''soft_ceiling_m3'':
+        states(''input_number.bsb_optimizer_ceiling'') | float(7), ''risk_margin'': states(''input_number.bsb_optimizer_risk'')
+        | float(0.5)} | to_json }}'

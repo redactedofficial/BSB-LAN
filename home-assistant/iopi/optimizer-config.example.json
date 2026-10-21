@@ -1,0 +1,39 @@
+{
+  "mode": "production",
+  "automatic_control_commissioned": false,
+  "horizon_hours": 48,
+  "comfort_c": 18,
+  "minimum_c": 15,
+  "maximum_c": 24,
+  "efficiency": null,
+  "max_fuel_kw": 35,
+  "min_fuel_kw": 3,
+  "min_run_minutes": 15,
+  "min_rest_minutes": 10,
+  "preferred_daily_m3": 5,
+  "soft_ceiling_m3": 7,
+  "solver_seconds": 5,
+  "risk_margin": 0.5,
+  "hydraulics_verified": false,
+  "tank_average_verified": false,
+  "flow_verified": false,
+  "tank_volume_l": 500,
+  "tank_reference_c": 30,
+  "tank_sensor_keys": [
+    "8830"
+  ],
+  "allow_estimated_heat_identification": false,
+  "approved_model": null,
+  "approved_water_curve": null,
+  "external_sensors": {},
+  "billing": {},
+  "weights": {
+    "gas": 1,
+    "comfort": 150,
+    "annual_budget": 2,
+    "cycling": 0.2,
+    "variation": 0.03,
+    "forecast_risk": 1,
+    "daily_preference": 0.2
+  }
+}

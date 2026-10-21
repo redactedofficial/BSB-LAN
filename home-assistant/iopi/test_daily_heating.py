@@ -27,6 +27,7 @@ class DailyTests(unittest.TestCase):
         self.env.filters['to_json'] = json.dumps
         self.env.globals.update(now=lambda: self.now, timedelta=timedelta,
              states=lambda entity: self.state.get(entity, 'unknown'),
+             state_attr=lambda entity,attribute: getattr(self,'recommendation',{}).get(attribute),
              is_state=lambda entity, value: self.state.get(entity) == value,
              is_number=lambda value: self.number(value), as_timestamp=self.timestamp)
 
@@ -77,10 +78,30 @@ class DailyTests(unittest.TestCase):
         self.events = [{'start': '2026-10-16', 'end': '2026-10-17'}]
         self.assertFalse(self.decisions()['allowed'])
 
-    def test_warm_and_unknown_weather_block(self):
-        for value in ['25', '26', 'unknown', 'unavailable']:
+    def test_warm_weather_blocks_but_outage_preserves_scheduled_delta_fallback(self):
+        for value in ['25', '26']:
             self.state['sensor.bsb_outdoor_weather_estimate'] = value
             self.assertFalse(self.decisions()['allowed'])
+        for value in ['unknown','unavailable']:
+            self.state['sensor.bsb_outdoor_weather_estimate']=value
+            self.assertTrue(self.decisions()['allowed'])
+            self.now=self.now.replace(hour=2)
+            self.assertFalse(self.decisions()['allowed'])
+            self.now=self.now.replace(hour=6)
+
+    def test_optimizer_can_only_restrict_fresh_production_policy(self):
+        self.state['input_select.bsb_optimizer_mode']='production'
+        self.recommendation={'schema':1,'authoritative':True,'issued_at':self.now.timestamp(),
+          'expires':self.now.timestamp()+75,'allow_gas':False,'allow_pump':False,'return_target':40}
+        self.assertFalse(self.decisions()['effective_gas'])
+        self.assertFalse(self.decisions()['effective_allowed'])
+        self.recommendation['expires']=self.now.timestamp()-1
+        self.assertTrue(self.decisions()['effective_gas'])
+        self.recommendation['expires']=self.now.timestamp()+75
+        self.state['input_boolean.iopi_heating_blocked']='on'
+        self.recommendation['allow_gas']=True
+        self.recommendation['allow_pump']=True
+        self.assertFalse(self.decisions()['effective_allowed'])
 
     def test_cold_weather_can_allow_overnight_but_still_respects_block(self):
         self.now = self.now.replace(hour=2)

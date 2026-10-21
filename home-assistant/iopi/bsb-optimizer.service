@@ -1,0 +1,28 @@
+[Unit]
+Description=BMS predictive heating policy and annual accounting
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+User=bsbopt
+Group=bsbopt
+WorkingDirectory=/opt/bms/iopi
+ExecStart=/opt/bms/iopi/.optimizer-venv/bin/python /opt/bms/iopi/heating_optimizer.py
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+UMask=0077
+StateDirectory=bsb-optimizer
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/bsb-optimizer
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=350M
+CPUQuota=60%
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=OMP_NUM_THREADS=1
+
+[Install]
+WantedBy=multi-user.target
