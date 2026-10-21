@@ -257,6 +257,23 @@ class Tests(unittest.TestCase):
         self.heater.tick(True)
         self.assertTrue(self.outputs.state[1])
 
+    def test_stop_reports_run_on_even_in_off_mode_and_repeated_stop_does_not_extend_it(self):
+        self.start()
+        self.outputs.manual_pump(False)
+        until = self.outputs.pump_until
+        for _ in range(4):
+            self.clock.now += 20
+            self.outputs.manual_pump(False)
+            self.heater.select('Off')
+            self.heater.tick(True)
+            self.assertTrue(self.outputs.state[2])
+            self.assertIn('pump run-on', self.heater.result)
+            self.assertEqual(self.outputs.pump_until, until)
+        self.clock.now = until + 1
+        self.heater.tick(True)
+        self.assertFalse(self.outputs.state[2])
+        self.assertEqual(self.heater.result, 'Room heat and pump stopped; calendars continue')
+
     def test_pump_hold_coexists_with_boost_and_cutoff(self):
         self.outputs.manual_pump(True)
         self.start()

@@ -18,7 +18,7 @@ import subprocess
 import threading
 import time
 
-VERSION = '0.4.1'
+VERSION = '0.4.2'
 LOG = logging.getLogger('iopi')
 # BCM GPIO -> physical 40-pin header position. GPIO0/1 are reserved for HAT ID.
 PINS = {2: 3, 3: 5, 4: 7, 5: 29, 6: 31, 7: 26, 8: 24, 9: 21,
@@ -368,14 +368,17 @@ class Heater:
         return 'accepted'
 
     def tick(self, demand):
-        if self.mode == 'Off':
-            return
         if self.outputs.pump_stop:
             self.outputs.stop_heat()
             self.outputs.command(2, False)
             if self.mode == 'Manual':
                 self.mode = 'Off'
-            self.result = 'Pump manually stopped; calendars continue'
+            remaining = max(0, math.ceil(self.outputs.pump_until - self.clock()))
+            self.result = (f'Stopping: pump run-on {remaining}s; room heat request off'
+                           if self.outputs.state.get(2) else
+                           'Room heat and pump stopped; calendars continue')
+            return
+        if self.mode == 'Off':
             return
         if self.mode == 'Thermostat':
             self.tick_daily(demand)

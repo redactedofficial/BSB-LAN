@@ -20,6 +20,9 @@ R3–R8 keep their existing individual leases and never pause any calendar.
 manual return cutoff and fixed one-hour maximum still apply. It does not turn
 off calendar helpers. Stop heating & pump ends the room gas request and holds
 the pump off, allowing the existing 120-second run-on after an active request.
+During this run-on the status shows a countdown, including when heating mode is
+Off; it reports stopped only after the pump output is OFF. Repeating Stop does
+not restart or extend the run-on timer.
 Starting a new gas boost releases a previous manual OFF hold. DHW has a separate
 controller and can independently fire the boiler. Connection/readback failure
 clears both manual override directions; neither is restored after reconnection.
