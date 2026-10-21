@@ -89,7 +89,7 @@ class Tests(unittest.TestCase):
     def test_discovery_covers_26_gpio_8_relays_and_no_invented_labels(self):
         rows = dict(discovery(self.config))
         self.assertEqual(sum('/gpio_' in t for t in rows), 26)
-        self.assertEqual(sum('/switch/' in t for t in rows), 8)
+        self.assertEqual(sum('/switch/' in t for t in rows), 9)
         self.assertEqual(len({r['unique_id'] for r in rows.values()}), len(rows))
         self.assertEqual(rows['homeassistant/sensor/bmsiopi/gpio_4/config']['name'], 'GPIO 4')
         self.assertIn('Boiler request', rows['homeassistant/switch/bmsiopi/relay_1/config']['name'])
@@ -191,6 +191,109 @@ class Tests(unittest.TestCase):
         self.clock.now += 301
         self.outputs.tick()
         self.assertFalse(self.outputs.state[8])
+
+    def test_pump_hold_survives_calendar_reconcile_and_continuous_run_limit(self):
+        self.daily(False)
+        self.outputs.manual_pump(True)
+        for _ in range(130):
+            self.clock.now += 30
+            self.daily(False)
+            self.heater.tick(True)
+            self.outputs.tick()
+        self.assertEqual(self.heater.mode, 'Thermostat')
+        self.assertEqual(self.hw.writes, [(2, True)])
+        self.assertFalse(self.outputs.state[1])
+        self.outputs.manual_pump(False)
+        self.heater.tick(True)
+        self.assertFalse(self.outputs.state[2])
+
+    def test_pump_hold_in_off_mode_does_not_request_gas_and_disconnect_releases(self):
+        self.outputs.manual_pump(True)
+        self.clock.now += 7200
+        self.outputs.tick()
+        self.assertEqual(self.heater.mode, 'Off')
+        self.assertTrue(self.outputs.state[2])
+        self.assertFalse(self.outputs.state[1])
+        self.outputs.disconnect()
+        self.assertFalse(self.outputs.pump_override)
+        self.assertFalse(self.outputs.state[2])
+
+    def test_pump_hold_coexists_with_boost_and_cutoff(self):
+        self.outputs.manual_pump(True)
+        self.start()
+        self.fresh('45')
+        self.heater.tick(True)
+        self.clock.now += 121
+        self.outputs.tick()
+        self.assertFalse(self.outputs.state[1])
+        self.assertTrue(self.outputs.state[2])
+        self.assertTrue(self.outputs.pump_override)
+
+    def buffer_policy(self, gas=True, enabled=True):
+        self.daily(target=55)
+        policy = dict(self.heater.permission, gas_allowed=gas, buffer_preferred=enabled,
+                      buffer_window=True, buffer_minimum=40, buffer_differential=5)
+        self.assertEqual(self.heater.daily_policy(json.dumps(policy)), 'accepted')
+
+    def test_warm_buffer_runs_pump_outside_calendar_without_gas(self):
+        self.buffer_policy(gas=False)
+        self.fresh('30')
+        self.heater.feedback('buffer', '48')
+        self.heater.tick(True)
+        self.clock.now += 6
+        self.heater.tick(True)
+        self.assertTrue(self.outputs.state[2])
+        self.assertFalse(self.outputs.state[1])
+
+    def test_buffer_hysteresis_and_gas_fallback_only_in_schedule(self):
+        self.buffer_policy(gas=False)
+        self.fresh('30')
+        for temp, pump in [('40', True), ('37', True), ('35', False), ('39', False)]:
+            self.heater.feedback('buffer', temp)
+            self.heater.tick(True)
+            self.assertEqual(self.outputs.state[2], pump)
+            self.assertFalse(self.outputs.state[1])
+        self.buffer_policy(gas=True)
+        self.heater.tick(True)
+        self.clock.now += 6
+        self.heater.tick(True)
+        self.assertTrue(self.outputs.state[1])
+
+    def test_warm_store_stops_charge_and_stale_store_never_starts_gas(self):
+        self.buffer_policy()
+        self.fresh('30')
+        self.heater.tick(True)
+        self.clock.now += 6
+        self.heater.tick(True)
+        self.assertFalse(self.outputs.state[1])
+        self.heater.feedback('buffer', '30')
+        self.heater.tick(True)
+        self.assertTrue(self.outputs.state[1])
+        self.heater.feedback('buffer', '45')
+        self.heater.tick(True)
+        self.assertFalse(self.outputs.state[1])
+        self.assertTrue(self.outputs.state[2])
+
+    def test_manual_boost_can_request_gas_despite_warm_store(self):
+        self.heater.feedback('buffer', '48')
+        self.start()
+        self.assertTrue(self.outputs.state[1])
+
+    def test_stale_tank_reading_cannot_authorise_automatic_gas_or_between_slot_pump(self):
+        self.buffer_policy(gas=False)
+        self.heater.feedback('buffer', '48')
+        self.heater.tick(True)
+        self.clock.now += 46
+        self.buffer_policy(gas=False)
+        self.fresh('30')
+        self.heater.tick(True)
+        self.assertFalse(self.outputs.state[2])
+        self.buffer_policy(gas=True)
+        self.heater.tick(True)
+        self.clock.now += 6
+        self.heater.tick(True)
+        self.assertTrue(self.outputs.state[2])
+        self.assertFalse(self.outputs.state[1])
 
     def test_thermostat_open_stops_heat_but_keeps_listening(self):
         self.daily()

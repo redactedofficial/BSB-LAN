@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from bsb_heat_control import Controller, decode_request
+from bsb_heat_control import Controller, MqttIO, RequestEnded, decode_request
 
 
 class IO:
@@ -57,6 +57,28 @@ class BsbTests(unittest.TestCase):
         self.assertEqual(self.io.values[700], 0)
         self.assertEqual(self.io.values[5978], 1)
         self.assertFalse(self.path.exists())
+
+    def test_normal_return_cutoff_restores_without_fault_pause(self):
+        self.control.step()
+        def ended(expected):
+            raise RequestEnded('Return-water target reached')
+        self.io.guard = ended
+        self.control.step()
+        self.assertFalse(self.io.cancelled)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.io.values[5978], 1)
+
+    def test_mqtt_normal_shutdown_and_failure_publish_distinct_events(self):
+        io = MqttIO.__new__(MqttIO)
+        sent = []
+        io.publish = lambda topic,payload: sent.append((topic,payload))
+        io.cancel(fault=False)
+        self.assertEqual(len(sent), 1)
+        self.assertTrue(sent[0][0].endswith('/mode/set'))
+        sent.clear()
+        io.cancel()
+        self.assertTrue(sent[0][0].endswith('/native_fault'))
+        self.assertTrue(sent[1][0].endswith('/mode/set'))
 
     def test_physical_closed_contact_and_wrong_h5_role_are_rejected(self):
         for p, v in [(7865, 1), (5977, 0), (5978, 0), (741, 45)]:

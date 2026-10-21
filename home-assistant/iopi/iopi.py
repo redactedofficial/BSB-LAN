@@ -18,7 +18,7 @@ import subprocess
 import threading
 import time
 
-VERSION = '0.3.1'
+VERSION = '0.4.0'
 LOG = logging.getLogger('iopi')
 # BCM GPIO -> physical 40-pin header position. GPIO0/1 are reserved for HAT ID.
 PINS = {2: 3, 3: 5, 4: 7, 5: 29, 6: 31, 7: 26, 8: 24, 9: 21,
@@ -26,7 +26,8 @@ PINS = {2: 3, 3: 5, 4: 7, 5: 29, 6: 31, 7: 26, 8: 24, 9: 21,
         17: 11, 18: 12, 19: 35, 20: 38, 21: 40, 22: 15, 23: 16,
         24: 18, 25: 22, 26: 37, 27: 13}
 RELAY_GPIO = {1: 17, 2: 27, 3: 22, 4: 23, 5: 24, 6: 25, 7: 5, 8: 6}
-FEEDBACK = {'BSB-LAN/0/36/8314/status': 'return', 'BSB-LAN/0/31/6700/status': 'error'}
+FEEDBACK = {'BSB-LAN/0/36/8314/status': 'return', 'BSB-LAN/0/31/6700/status': 'error',
+            'BSB-LAN/0/37/8830/status': 'buffer'}
 LINE = re.compile(r'^\s*(\d+):\s+(\S+)\s+.*?\|\s*(hi|lo|--)\s*//\s*(.*?)\s*=\s*(.*?)\s*$')
 
 
@@ -154,6 +155,16 @@ class Outputs:
         self.started, self.expires = {}, {}
         self.pump_until = 0.0
         self.fault = False
+        self.pump_override = False
+
+    def manual_pump(self, on):
+        if 2 not in self.enabled or self.fault:
+            return 'gpio_fault' if self.fault else 'not_commissioned'
+        self.pump_override = on
+        if on:
+            self.command(2, True, coordinated=True)
+        LOG.info('pump_override=%s', 'ON' if on else 'AUTO')
+        return 'accepted'
 
     def write(self, rid, on):
         if self.state.get(rid) is on:
@@ -188,6 +199,9 @@ class Outputs:
                 self.stop_heat()
         if rid == 2 and not on:
             self.stop_heat()
+            if self.pump_override:
+                self.command(2, True, coordinated=True)
+                return 'manual_pump_hold'
             if now < self.pump_until:
                 self.expires.pop(2, None)
                 return 'pump_run_on'
@@ -200,6 +214,8 @@ class Outputs:
 
     def tick(self):
         now = self.clock()
+        if self.pump_override and not self.fault:
+            self.command(2, True, coordinated=True)
         for rid in sorted(list(self.expires)):
             if now >= self.expires.get(rid, float('inf')):
                 self.command(rid, False)
@@ -208,12 +224,14 @@ class Outputs:
             self.write(2, False)
 
     def disconnect(self):
+        self.pump_override = False
         self.stop_heat()
         for rid in sorted(self.enabled):
             self.command(rid, False)
 
     def emergency(self):
         self.fault = True
+        self.pump_override = False
         self.expires.clear()
         for rid in sorted(self.enabled):
             try:
@@ -234,12 +252,14 @@ class Heater:
         self.deadline = 0.0
         self.permission = None
         self.charge_deadline = self.next_charge = 0.0
+        self.buffer_warm = False
 
     def daily_policy(self, payload):
         try:
             policy = json.loads(payload)
             target, expires = policy['target'], policy['expires']
             differential = policy.get('differential', 2)
+            minimum, buffer_diff = policy.get('buffer_minimum', 40), policy.get('buffer_differential', 5)
             if (type(policy['allowed']) is not bool or type(target) not in (int, float)
                     or not math.isfinite(target) or not 30 <= target <= 55
                     or type(expires) not in (int, float) or not math.isfinite(expires)
@@ -247,10 +267,16 @@ class Heater:
                     or not self.wall_clock() < expires <= self.wall_clock() + 90
                     or not isinstance(policy['reason'], str) or len(policy['reason']) > 80):
                 raise ValueError('Invalid daily policy')
+            if (any(type(policy.get(key, False)) is not bool for key in
+                    ('gas_allowed', 'buffer_preferred', 'buffer_window'))
+                    or type(minimum) not in (int, float) or not math.isfinite(minimum) or not 35 <= minimum <= 55
+                    or type(buffer_diff) not in (int, float) or not math.isfinite(buffer_diff) or not 2 <= buffer_diff <= 10):
+                raise ValueError('Invalid buffer policy')
         except (ValueError, TypeError, KeyError):
             return 'invalid_policy'
         self.permission = policy
         self.permission['differential'] = differential
+        self.permission.update(buffer_minimum=minimum, buffer_differential=buffer_diff)
         return 'accepted'
 
     def policy_reason(self):
@@ -262,7 +288,7 @@ class Heater:
 
     def feedback(self, kind, payload):
         try:
-            if kind == 'return':
+            if kind in ('return', 'buffer'):
                 value = float(payload)
                 if not math.isfinite(value) or not 0 <= value <= 100:
                     raise ValueError('Invalid temperature')
@@ -277,6 +303,9 @@ class Heater:
 
     def fresh(self):
         return all(k in self.receipts and self.clock() - self.receipts[k][1] < 45 for k in ('return', 'error'))
+
+    def buffer_fresh(self):
+        return 'buffer' in self.receipts and self.clock() - self.receipts['buffer'][1] < 45
 
     def block_reason(self):
         if self.outputs.fault:
@@ -347,10 +376,33 @@ class Heater:
                 self.outputs.command(2, False)
             self.result = reason
             return
+        prefer_buffer = self.permission.get('buffer_preferred', False)
+        if not self.buffer_fresh() or not prefer_buffer:
+            self.buffer_warm = False
+        else:
+            temperature = self.receipts['buffer'][0]
+            minimum = self.permission['buffer_minimum']
+            if temperature >= minimum:
+                self.buffer_warm = True
+            elif temperature <= minimum - self.permission['buffer_differential']:
+                self.buffer_warm = False
+        gas_window = self.permission.get('gas_allowed', True)
+        if not gas_window and not (self.permission.get('buffer_window', False) and self.buffer_warm):
+            self.outputs.stop_heat()
+            self.outputs.command(2, False)
+            self.result = 'Waiting for usable buffer heat; gas outside schedule'
+            return
         # Distribution can use heat already stored in the buffer. It does not
         # depend on a low boiler return temperature or a new burner request.
         self.outputs.command(2, True, coordinated=True)
         target = self.permission['target']
+        if self.buffer_warm or not gas_window or (prefer_buffer and not self.buffer_fresh()):
+            if self.outputs.state.get(1):
+                self.outputs.stop_heat()
+                self.next_charge = self.clock() + 600
+            self.result = ('Pump on; stored heat first, gas request off' if self.buffer_warm else
+                           'Pump on; gas blocked: fresh tank reading needed')
+            return
         if not self.fresh():
             self.outputs.stop_heat()
             self.result = 'Pump on; boiler blocked: feedback unavailable'
@@ -410,6 +462,13 @@ def discovery(config):
     row.update(command_topic=f'{prefix}/heating/mode/set', options=['Off', 'Thermostat', 'Manual'],
                retain=False, qos=0, optimistic=False)
     yield 'homeassistant/select/bmsiopi/heating_mode/config', row
+    row = base('switch', 'pump_override', 'Manual pump hold', 'system_available')
+    row.update(command_topic=f'{prefix}/heating/pump_override/set', payload_on='ON', payload_off='OFF',
+               optimistic=False, retain=False, qos=0, icon='mdi:pump')
+    yield 'homeassistant/switch/bmsiopi/pump_override/config', row
+    row = base('sensor', 'buffer_water', 'Buffer tank water', 'buffer_available')
+    row.update(expire_after=20, device_class='temperature', unit_of_measurement='°C', state_class='measurement')
+    yield 'homeassistant/sensor/bmsiopi/buffer_water/config', row
     row = base('number', 'return_cutoff', 'Return-water cutoff', 'system_available')
     row.update(command_topic=f'{prefix}/heating/cutoff/set', min=30, max=55, step=1,
                unit_of_measurement='°C', mode='box', retain=False, qos=0)
@@ -488,7 +547,7 @@ class Node:
             # BSB readings even though the gateway itself publishes with RETAIN.
             client.subscribe(topic, options=self.module.SubscribeOptions(qos=0, retainAsPublished=False, retainHandling=2))
         for topic in ['iopi/bmsiopi/heating/mode/set', 'iopi/bmsiopi/heating/cutoff/set',
-                      'iopi/bmsiopi/heating/policy/set']:
+                      'iopi/bmsiopi/heating/policy/set', 'iopi/bmsiopi/heating/pump_override/set']:
             client.subscribe(topic, options=self.module.SubscribeOptions(qos=0, retainAsPublished=True, retainHandling=2))
         for r in self.config['relays']:
             client.subscribe(f'iopi/bmsiopi/relay_{r["id"]}/set',
@@ -511,7 +570,7 @@ class Node:
             LOG.warning('mqtt event=invalid_or_replayed_command')
             return
         if msg.topic in FEEDBACK or msg.topic in ('iopi/bmsiopi/heating/mode/set', 'iopi/bmsiopi/heating/cutoff/set',
-                                                'iopi/bmsiopi/heating/policy/set'):
+                                                'iopi/bmsiopi/heating/policy/set', 'iopi/bmsiopi/heating/pump_override/set'):
             try:
                 payload = msg.payload.decode('utf8')
                 kind = 'feedback' if msg.topic in FEEDBACK else 'setting'
@@ -557,6 +616,7 @@ class Node:
                 'last_result': self.last_result.get(rid, 'not_commissioned' if not r['enabled'] else 'idle'),
                 'state_source': 'GPIO drive readback; no contact/load feedback',
                 'reserved_off': native,
+                'manual_hold': self.outputs.pump_override if rid == 2 else False,
                 'lease_seconds': self.config['lease_seconds']}))
         heat = self.hardware.thermostat()
         self.status('thermostat/available', 'online' if heat is not None else 'offline', True)
@@ -579,6 +639,11 @@ class Node:
             pass
         self.status('uptime/state', str(int(time.monotonic() - self.born)))
         self.status('heating_mode/state', self.heater.mode)
+        self.status('pump_override/state', 'ON' if self.outputs.pump_override else 'OFF')
+        buffer_fresh = self.heater.buffer_fresh()
+        self.status('buffer_available', 'online' if buffer_fresh else 'offline', True)
+        if buffer_fresh:
+            self.status('buffer_water/state', str(self.heater.receipts['buffer'][0]))
         self.status('boiler_request/state', 'ON' if self.outputs.state.get(1) else 'OFF')
         if self.config.get('boiler_control') == 'bsb_lan':
             target = (self.heater.permission['target'] if self.heater.mode == 'Thermostat'
@@ -651,6 +716,9 @@ class Node:
                                 self.operator_action('stop')
                         elif event[3].endswith('/policy/set'):
                             self.heater.daily_policy(event[4])
+                        elif event[3].endswith('/pump_override/set'):
+                            if event[4] in ('ON', 'OFF') and self.last_observation is not None:
+                                self.outputs.manual_pump(event[4] == 'ON')
                         else:
                             try:
                                 value = float(event[4])
@@ -673,16 +741,11 @@ class Node:
                                 result = ('reserved_off_use_heating_controls' if self.config.get('boiler_control') == 'bsb_lan'
                                           else self.heater.select('Manual' if on else 'Off'))
                             else:
-                                if rid == 2 and on and self.heater.mode == 'Thermostat':
-                                    self.heater.stop('Manual pump control')
-                                if rid == 2 and not on:
-                                    self.heater.stop('Pump stop requested')
-                                result = self.outputs.command(rid, on)
+                                result = (self.outputs.manual_pump(on) if rid == 2 else
+                                          self.outputs.command(rid, on))
                             # Read hardware again before acknowledging a changed drive state.
                             self.last_observation = observe()
                         self.last_result[rid] = result
-                        if rid == 2 and result in ('accepted', 'pump_run_on'):
-                            self.operator_action('pump_manual')
                         LOG.info('relay=%d request=%s result=%s', rid, on, result)
                         next_publish = 0
                 if now >= next_publish and self.connected.is_set():

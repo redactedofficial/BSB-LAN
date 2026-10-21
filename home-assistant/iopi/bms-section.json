@@ -88,7 +88,7 @@
     },
     {
       "type": "markdown",
-      "content": "Daily room heating follows Delta demand and the calendar/weather permission. R2 distributes buffer heat; BSB-LAN requests boiler charging with checked native settings. R1 stays off. DHW keeps its separate routine."
+      "content": "Delta can use stored tank heat during the day between slots. Gas fallback follows calendar/cold allowances. Pump only is an independent hold; manual controls never pause calendars. R1 stays off. DHW keeps its separate routine."
     },
     {
       "type": "button",

@@ -23,6 +23,73 @@
               "icon": "mdi:radiator"
             },
             {
+              "type": "button",
+              "name": "Pump only",
+              "icon": "mdi:pump",
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "script.iopi_pump_only_start"
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "button",
+              "name": "Fuck, it's so cold",
+              "icon": "mdi:fire",
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "script.bsb_manual_heat_start",
+                "confirmation": {
+                  "text": "Run pump and request gas heat to the manual return cutoff (maximum one hour)? Calendars continue."
+                }
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "button",
+              "name": "Release pump hold",
+              "icon": "mdi:autorenew",
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "script.iopi_pump_override_release"
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
+              "type": "button",
+              "name": "End gas boost",
+              "icon": "mdi:stop-circle-outline",
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "script.bsb_manual_heat_stop"
+              },
+              "hold_action": {
+                "action": "none"
+              },
+              "grid_options": {
+                "columns": 6,
+                "rows": 2
+              }
+            },
+            {
               "type": "entities",
               "show_header_toggle": false,
               "entities": [
@@ -37,6 +104,26 @@
                 {
                   "entity": "input_boolean.iopi_heating_blocked",
                   "name": "Block automatic heating"
+                },
+                {
+                  "entity": "input_boolean.bsb_heat_fault",
+                  "name": "Heating fault latch"
+                },
+                {
+                  "entity": "switch.bmsiopi_pump_override",
+                  "name": "Manual pump hold"
+                },
+                {
+                  "entity": "sensor.bmsiopi_buffer_water",
+                  "name": "Tank water · B3"
+                },
+                {
+                  "entity": "input_boolean.iopi_prefer_stored_heat",
+                  "name": "Prefer stored solar heat"
+                },
+                {
+                  "entity": "input_number.iopi_buffer_minimum",
+                  "name": "Use stored heat above"
                 },
                 {
                   "entity": "sensor.bmsiopi_daily_permission",
@@ -73,43 +160,8 @@
               ]
             },
             {
-              "type": "button",
-              "name": "Heat once",
-              "icon": "mdi:fire",
-              "tap_action": {
-                "action": "perform-action",
-                "perform_action": "script.bsb_manual_heat_start",
-                "confirmation": {
-                  "text": "Heat once? This can start the radiator pump and request boiler heat."
-                }
-              },
-              "hold_action": {
-                "action": "none"
-              },
-              "grid_options": {
-                "columns": 6,
-                "rows": 2
-              }
-            },
-            {
-              "type": "button",
-              "name": "Stop heating",
-              "icon": "mdi:stop-circle-outline",
-              "tap_action": {
-                "action": "perform-action",
-                "perform_action": "script.bsb_manual_heat_stop"
-              },
-              "hold_action": {
-                "action": "none"
-              },
-              "grid_options": {
-                "columns": 6,
-                "rows": 2
-              }
-            },
-            {
               "type": "markdown",
-              "content": "**{{ states('sensor.bmsiopi_heating_status') }}**\n\n**Daily heating = Delta demand + calendar/cold allowance + no weather/block veto.** Thermostat mode runs R2 only when those conditions agree. BSB-LAN can then request a buffer recharge with fresh boiler feedback, pump priming and a return cutoff. R2 keeps distributing stored heat after that cutoff while Delta still calls. Missing daily permission stops heat within 75 seconds, with two minutes of pump run-on after the boiler request stops. R1 stays off. Manual Heat once is an explicit Delta/calendar override, bounded to one hour and the manual return cutoff. The calendar stays enabled during a manual cycle and can resume afterward. Stop heating blocks automatic heating; clear Block automatic heating, or switch the calendar off and on, to resume. {% if states('sensor.bmsiopi_return_water') in ['unknown','unavailable'] %}**Boiler feedback is unavailable; boiler charging is blocked. Allowed Delta demand can still circulate stored heat.**{% endif %}\n\n{% if states('binary_sensor.bmsiopi_thermostat') in ['unknown','unavailable'] %}**Delta input is not commissioned or unavailable.** {% endif %}GPIO26's raw level is not a heat-demand reading. Native boiler control still determines burner operation. The return cutoff needs BMS and BSB-LAN communication; a complete outage can prevent a software stop. [Building heating overview](/bms-overview/overview)"
+              "content": "**{{ states('sensor.bmsiopi_heating_status') }}**\n\n**Pump only** holds R2 on until released or communication is lost. It does not request gas or pause calendars. **Fuck, it's so cold** overrides room demand for a gas boost, bounded by the manual return cutoff and one hour. End gas boost returns control to the enabled schedule; an independent pump hold stays on.\n\n**Stored heat first:** with Delta demand, daytime circulation (06:00–22:00) can use tank heat between calendar slots. It starts at the selected tank temperature and releases 5°C below it. Gas fallback is confined to calendar/cold allowances. Warm weather and explicit automatic blocks still apply; manual controls remain independent. DHW has its own routine. {% if states('sensor.bmsiopi_return_water') in ['unknown','unavailable'] %}**Boiler feedback is unavailable; boiler charging is blocked. Allowed Delta demand can still circulate stored heat.**{% endif %}\n\n{% if states('binary_sensor.bmsiopi_thermostat') in ['unknown','unavailable'] %}**Delta input is not commissioned or unavailable.** {% endif %}GPIO26's raw level is not a heat-demand reading. Native boiler control still determines burner operation. The return cutoff needs BMS and BSB-LAN communication; a complete outage can prevent a software stop. [Building heating overview](/bms-overview/overview)"
             }
           ]
         },
@@ -123,7 +175,7 @@
             },
             {
               "type": "markdown",
-              "content": "HIGH trigger · OFF = LOW GPIO drive. State is GPIO readback, without contact/load feedback. R3–R8 and independent pump operation use five-minute leases. R1 is reserved OFF; boiler starts use BSB-LAN. Manual pump control blocks automatic heating while leaving the calendar enabled."
+              "content": "HIGH trigger · OFF = LOW GPIO drive. State is GPIO readback, without contact/load feedback. R3–R8 use five-minute leases. R1 is reserved OFF; boiler starts use BSB-LAN. R2 ON holds the pump; R2 OFF releases it to automatic control. Manual relay commands never pause calendars."
             },
             {
               "type": "tile",

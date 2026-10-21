@@ -20,6 +20,7 @@ class DailyTests(unittest.TestCase):
             'input_number.bsb_heating_weather_limit': '25', 'input_number.bsb_cold_boost_temperature': '0',
             'input_number.bsb_calendar_hot_target': '50', 'input_number.bsb_calendar_hysteresis': '2',
             'input_boolean.iopi_heating_blocked': 'off', 'input_boolean.bsb_heat_fault': 'off',
+            'input_boolean.iopi_prefer_stored_heat': 'off', 'input_number.iopi_buffer_minimum': '40',
         }
         self.events = [{'start': '2026-10-16T06:00:00+02:00', 'end': '2026-10-16T06:30:00+02:00'}]
         self.env = NativeEnvironment()
@@ -121,19 +122,41 @@ class DailyTests(unittest.TestCase):
             if step.get('action') in ('input_boolean.turn_on', 'input_boolean.turn_off', 'input_boolean.toggle'):
                 self.assertNotEqual(step.get('target', {}).get('entity_id'), 'input_boolean.bsb_calendar_enabled')
 
-    def test_explicit_stop_blocks_automatic_without_disabling_calendar(self):
+    def test_manual_end_does_not_block_calendar_or_send_dhw_commands(self):
         stop = SEQUENCE[1]['choose'][1]['sequence']
-        self.assertEqual(stop[0]['action'], 'input_boolean.turn_on')
-        self.assertEqual(stop[0]['target']['entity_id'], 'input_boolean.iopi_heating_blocked')
-        self.assertEqual(stop[1]['data']['payload'], 'Off')
+        self.assertEqual(stop[0]['data']['payload'], 'Off')
+        self.assertNotIn('iopi_heating_blocked', json.dumps(stop))
 
-    def test_mode_completion_does_not_trigger_automatic_pause(self):
-        pause = next(a for a in PACKAGE['automation'] if a['id']=='iopi_manual_control_pauses_daily_heating')
-        self.assertEqual(pause['triggers'], [{'trigger':'mqtt','topic':'iopi/bmsiopi/heating/operator_action'}])
-        template = pause['conditions'][0]['value_template']
-        for action, age, expected in [('stop',0,True),('pump_manual',0,True),('stop',11,False),('completed',0,False)]:
-            actual = self.env.from_string(template).render(trigger={'payload_json':{'action':action,'at':self.now.timestamp()-age}})
-            self.assertEqual(actual, expected)
+    def test_manual_pump_never_changes_mode_or_calendar_and_fault_is_separate(self):
+        for name in ('iopi_pump_only_start', 'iopi_pump_override_release'):
+            action = PACKAGE['script'][name]['sequence'][0]
+            self.assertEqual(action['data']['topic'], 'iopi/bmsiopi/heating/pump_override/set')
+            self.assertNotIn('input_boolean', json.dumps(PACKAGE['script'][name]))
+        self.assertFalse(any(a['id']=='iopi_manual_control_pauses_daily_heating' for a in PACKAGE['automation']))
+        fault = next(a for a in PACKAGE['automation'] if a['id']=='iopi_native_fault_blocks_charging')
+        self.assertEqual(fault['actions'][0]['target']['entity_id'], 'input_boolean.bsb_heat_fault')
+
+    def test_daytime_buffer_permission_does_not_create_gas_permission(self):
+        self.now = self.now.replace(hour=15)
+        self.state['input_boolean.iopi_prefer_stored_heat'] = 'on'
+        decisions = self.decisions()
+        self.assertTrue(decisions['allowed'])
+        self.assertFalse(decisions['window_active'])
+        step = next(s for s in SEQUENCE if s.get('data', {}).get('topic')=='iopi/bmsiopi/heating/policy/set')
+        payload = json.loads(self.env.from_string(step['data']['payload']).render(**decisions))
+        self.assertFalse(payload['gas_allowed'])
+        self.assertTrue(payload['buffer_window'])
+        self.now = self.now.replace(hour=23)
+        self.assertFalse(self.decisions()['allowed'])
+
+    def test_buffer_permission_still_respects_explicit_block_and_warm_weather(self):
+        self.now = self.now.replace(hour=15)
+        self.state['input_boolean.iopi_prefer_stored_heat'] = 'on'
+        self.state['input_boolean.iopi_heating_blocked'] = 'on'
+        self.assertFalse(self.decisions()['allowed'])
+        self.state['input_boolean.iopi_heating_blocked'] = 'off'
+        self.state['sensor.bsb_outdoor_weather_estimate'] = '25'
+        self.assertFalse(self.decisions()['allowed'])
 
 if __name__ == '__main__':
     unittest.main()

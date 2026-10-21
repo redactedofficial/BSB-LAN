@@ -25,6 +25,10 @@ PREFIX = 'iopi/bmsiopi/'
 REQUEST = PREFIX + 'heating/boiler_request'
 
 
+class RequestEnded(RuntimeError):
+    """Normal demand cancellation or measured return cutoff, not a fault."""
+
+
 def decode_request(payload, now):
     row = json.loads(payload)
     if (not isinstance(row, dict) or type(row.get('active')) is not bool
@@ -113,6 +117,8 @@ class Controller:
                 raise RuntimeError('Native circuit-1 settings changed; stopping owned cycle')
             else:
                 self.status = 'BSB-LAN heat requested · ' + self.io.text(8005)
+        except RequestEnded as exc:
+            self.release(str(exc))
         except Exception:
             self.io.cancel()
             raise
@@ -178,7 +184,7 @@ class MqttIO:
     def guard(self, expected):
         current = self.request()
         if not current or not current['active'] or any(current[k] != expected[k] for k in ('flow', 'cutoff', 'mode')):
-            raise RuntimeError('Heat request ended or changed')
+            raise RequestEnded('Heat request ended or changed')
         for key, value in [('availability', 'online'), ('relay_1/state', 'OFF'),
                            ('relay_2/state', 'ON'), ('relay_2/available', 'online')]:
             if self.read(PREFIX + key, 15) != value:
@@ -186,7 +192,7 @@ class MqttIO:
         if self.number(6700) != 0:
             raise RuntimeError('Native boiler fault; request stopped')
         if self.number(8314) >= expected['cutoff']:
-            raise RuntimeError('Return-water target reached')
+            raise RequestEnded('Return-water target reached')
 
     def poll(self):
         for base in TOPICS.values():
@@ -210,7 +216,9 @@ class MqttIO:
                 pass
         raise RuntimeError(f'Native write {parameter} unconfirmed')
 
-    def cancel(self):
+    def cancel(self, fault=True):
+        if fault:
+            self.publish(PREFIX + 'heating/native_fault', json.dumps({'at': time.time()}))
         self.publish(PREFIX + 'heating/mode/set', 'Off')
 
     def advertise(self):
@@ -261,7 +269,7 @@ def main():
                     io.advertise()
                     next_advertise = time.monotonic() + 60
                 if recovering:
-                    io.cancel()
+                    io.cancel(fault=False)
                     controller.release('Recovered interrupted cycle; stopped')
                     recovering = False
                 controller.step()
@@ -283,7 +291,7 @@ def main():
                     pass
     finally:
         try:
-            io.cancel()
+            io.cancel(fault=False)
             controller.release('Service stopped')
             io.publish(PREFIX + 'bsb/availability', 'offline', True)
         finally:

@@ -48,8 +48,8 @@ def main():
     for rid in range(1, 9):
         node_acl.append(f'topic read iopi/bmsiopi/relay_{rid}/set')
     node_acl += ['topic read iopi/bmsiopi/heating/mode/set', 'topic read iopi/bmsiopi/heating/cutoff/set',
-                 'topic read iopi/bmsiopi/heating/policy/set']
-    for category, parameter in [(36, 8314), (31, 6700)]:
+                 'topic read iopi/bmsiopi/heating/policy/set', 'topic read iopi/bmsiopi/heating/pump_override/set']
+    for category, parameter in [(36, 8314), (31, 6700), (37, 8830)]:
         node_acl += [f'topic read BSB-LAN/0/{category}/{parameter}/status',
                      f'topic write BSB-LAN/0/{category}/{parameter}/poll']
     updated['bsblan-acl'] += '\n# IOPI controller\n' + '\n'.join(node_acl) + '\n'
@@ -59,7 +59,7 @@ def main():
     ha_acl = ['\n# IOPI integration', 'topic read iopi/bmsiopi/#']
     ha_acl += [f'topic write iopi/bmsiopi/relay_{rid}/set' for rid in range(1, 9)]
     ha_acl += ['topic write iopi/bmsiopi/heating/mode/set', 'topic write iopi/bmsiopi/heating/cutoff/set',
-               'topic write iopi/bmsiopi/heating/policy/set']
+               'topic write iopi/bmsiopi/heating/policy/set', 'topic write iopi/bmsiopi/heating/pump_override/set']
     updated['rms-acl'] = ''.join(lines[:end]) + '\n'.join(ha_acl) + '\n\n' + ''.join(lines[end:])
     try:
         for name, path in paths.items():

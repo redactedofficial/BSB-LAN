@@ -2,11 +2,34 @@
 
 Calendar enablement is persistent. Manual Heat once temporarily takes control
 without disabling the calendar; completion can return to the enabled schedule.
-Explicit Stop, direct Off commands and manual pump commands set the separate
-automatic-heating block. Clear that block, or switch the calendar off and on,
-to resume. Weather vetoes, event endings, automatic cutoffs and reconnects never
-turn the calendar switch off. A native-controller stop command can also latch
-the automatic block; the native status explains the underlying failure.
+Manual relay commands and ending a manual boost never set the automatic block.
+The explicit automatic-block helper remains available for deliberate pauses.
+Native control failures set a separate heating fault latch; ordinary cutoffs,
+request completion and clean service restarts do not latch a fault.
+
+**Pump only** sets the R2 manual hold without changing the heating mode or
+calendar permissions. It remains on until released or communication/readback
+is lost; it is not restored after reconnection. Automatic gas requests may
+coexist only when their own Delta/calendar/weather requirements allow them.
+R2 ON sets this hold; R2 OFF releases it to automatic control (so an eligible
+automatic request can keep the pump on). The separate hold entity shows ownership.
+R3–R8 keep their existing individual leases and never pause any calendar.
+
+**Fuck, it's so cold** requests the existing explicit pump + gas boost. The
+manual return cutoff and fixed one-hour maximum still apply. It does not turn
+off calendar helpers. End gas boost returns control to the enabled schedule;
+an independent manual pump hold remains on. DHW has a separate controller.
+
+**Prefer stored solar heat** uses the actual B3 tank probe, not forecast sunshine.
+With Delta demand, fresh warm tank water permits daytime circulation from
+06:00–22:00, including between heating slots. The commissioned threshold is
+40°C, adjustable 35–55°C, with 5°C hysteresis. Automatic gas is suppressed while
+usable stored heat remains, and is permitted only within calendar/cold windows
+when the tank is too cool. Missing fresh B3 feedback inhibits automatic gas;
+between slots it also inhibits automatic stored-heat circulation. The node polls
+8830 every 15 seconds and rejects values older than 45 seconds. This reading
+cannot distinguish solar energy from previously stored gas heat or establish
+whole-tank usable energy; the tank can stratify. No collector reading is assumed.
 
 The BSB transport (`boiler_control: bsb_lan`) keeps physical R1 LOW and rejects its
 relay commands. All manual/scheduled boiler requests use the BMS-side
@@ -30,8 +53,12 @@ Do not describe the return cutoff as a hard temperature cap or a hardware safety
 Install `bsbheat.service` on BMS with paho-mqtt, its protected MQTT configuration
 at `/etc/bsbheat/mqtt.json`, and a scoped identity able to read/poll the listed
 parameters, write only 700/742/5978, publish its two discovery/status entities,
-read IO-PI telemetry and send its stop command. The unit uses an existing Python
-runtime at `/opt/rms/.venv/bin/python`; adapt this path to the deployment.
+read IO-PI telemetry and send its stop command.
+It also publishes the fresh `iopi/bmsiopi/heating/native_fault` event; grant that
+single event topic to the bridge identity and the pump override command topic
+to Home Assistant and IO-PI. These additions do not grant further boiler writes.
+The unit uses an existing Python runtime at `/opt/rms/.venv/bin/python`; adapt
+this path to the deployment.
 `config.example.json` retains the uncommissioned relay profile; BSB transport
 requires this separate service before commissioning outputs.
 
@@ -109,7 +136,7 @@ In the relay transport, R1 ON requests an explicit bounded Manual cycle; Off end
 R2 for five seconds before R1, stops at the return-water cutoff (default 45°C),
 then keeps R2 on for 120 seconds. Manual overrides Delta/calendar comfort demand
 and temporarily overrides the daily controller; it never overrides native boiler protections.
-Independent R2 control blocks automatic ownership while preserving calendar enablement. GPIO26 uses a pull-up,
+Independent R2 control holds only the pump while preserving calendar ownership. GPIO26 uses a pull-up,
 but `thermostat.connected` stays false until its isolated jumper wiring is fitted.
 The raw pin can be observed; the heat-demand entity remains unavailable meanwhile.
 Changing a raw GPIO level never starts heating.
@@ -120,10 +147,10 @@ subscription snapshots while accepting newly published readings from the
 gateway's retained state stream. Missing/invalid temperature, any boiler error,
 network loss or the fixed one-hour cycle deadline ends the request. Duplicate
 Manual commands cannot extend the deadline. Unavailable boiler feedback blocks
-heat, including when the boiler is powered off. Only read/poll access to these two BSB
+heat, including when the boiler is powered off. Only read/poll access to these three BSB
 parameters is granted; IOPI cannot modify the boiler's BSB settings.
 
-R2 can also circulate independently on a five-minute lease. R3–R8 use individual
+R2 can also circulate independently through its manual hold. R3–R8 use individual
 five-minute leases; ON renewals cannot exceed the one-hour continuous ceiling.
 The node starts Off after restart/reconnection. Home Assistant can re-arm
 Thermostat mode when the saved daily master is enabled, using a new permission.

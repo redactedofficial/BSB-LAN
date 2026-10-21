@@ -72,7 +72,16 @@ input_number:
     step: 1
     mode: box
     unit_of_measurement: °C
+  iopi_buffer_minimum:
+    name: Stored heat starts circulation at
+    min: 35
+    max: 55
+    step: 1
+    mode: box
+    unit_of_measurement: °C
 input_boolean:
+  iopi_prefer_stored_heat:
+    name: Prefer stored solar heat
   bsb_manual_heat_active:
     name: Heating water cycle active
   bsb_calendar_enabled:
@@ -252,6 +261,24 @@ template:
       payload: '{{ trigger.payload }}'
       received_at: '{{ as_timestamp(now()) }}'
 script:
+  iopi_pump_only_start:
+    alias: Pump only - hold until released
+    mode: single
+    sequence:
+    - action: mqtt.publish
+      data:
+        topic: iopi/bmsiopi/heating/pump_override/set
+        payload: 'ON'
+        retain: false
+  iopi_pump_override_release:
+    alias: Release manual pump hold
+    mode: single
+    sequence:
+    - action: mqtt.publish
+      data:
+        topic: iopi/bmsiopi/heating/pump_override/set
+        payload: 'OFF'
+        retain: false
   bsb_manual_heat_start:
     alias: BSB-LAN manual heating once with IO-PI pump
     mode: single
@@ -260,7 +287,7 @@ script:
       data:
         operation: start
   bsb_manual_heat_stop:
-    alias: BSB-LAN stop heating and block automatic heating
+    alias: End manual heating - calendars continue
     mode: single
     sequence:
     - action: script.bsb_heat_control
@@ -290,15 +317,12 @@ script:
         - stop: Manual once requested; local node owns cutoff and deadline
       - conditions: '{{ operation == ''stop'' }}'
         sequence:
-        - action: input_boolean.turn_on
-          target:
-            entity_id: input_boolean.iopi_heating_blocked
         - action: mqtt.publish
           data:
             topic: iopi/bmsiopi/heating/mode/set
             payload: 'Off'
             retain: false
-        - stop: Stop requested; local node performs boiler-first stop and pump run-on
+        - stop: Manual cycle ended; calendars and independent pump hold continue
     - variables:
         calendar_result: {}
     - action: calendar.get_events
@@ -330,16 +354,17 @@ script:
           | float(99) >= states(''input_number.bsb_heating_weather_limit'') | float(0)) }}'
         target_valid: '{{ is_number(states(''input_number.bsb_calendar_hot_target'')) and 30 <= states(''input_number.bsb_calendar_hot_target'')
           | float <= 55 }}'
+        buffer_window: '{{ is_state(''input_boolean.iopi_prefer_stored_heat'', ''on'') and 6 <= now().hour < 22 }}'
     - variables:
         window_active: '{{ event_active or cold_boost }}'
-        allowed: '{{ is_state(''input_boolean.bsb_calendar_enabled'', ''on'') and calendar_ok and (event_active
-          or cold_boost) and not weather_blocked and target_valid and is_state(''input_boolean.iopi_heating_blocked'',
+        allowed: '{{ is_state(''input_boolean.bsb_calendar_enabled'', ''on'') and ((calendar_ok and (event_active
+          or cold_boost)) or buffer_window) and not weather_blocked and target_valid and is_state(''input_boolean.iopi_heating_blocked'',
           ''off'') and is_state(''input_boolean.bsb_heat_fault'', ''off'') }}'
         reason: '{{ ''Daily schedule paused'' if not is_state(''input_boolean.bsb_calendar_enabled'', ''on'') else
-          ''Calendar unavailable'' if not calendar_ok else ''Automatic heating blocked'' if not is_state(''input_boolean.iopi_heating_blocked'',
+          ''Calendar unavailable'' if not calendar_ok and not buffer_window else ''Automatic heating blocked'' if not is_state(''input_boolean.iopi_heating_blocked'',
           ''off'') else ''Heating fault flag set'' if not is_state(''input_boolean.bsb_heat_fault'', ''off'') else
           ''Outdoor weather warm or unavailable'' if weather_blocked else ''Invalid daily return target'' if not
-          target_valid else ''Cold-weather allowance'' if cold_boost else ''Heating calendar event'' if event_active
+          target_valid else ''Cold-weather allowance'' if cold_boost else ''Heating calendar event'' if event_active else ''Stored heat daytime allowance'' if buffer_window
           else ''Between heating events'' }}'
         permission_expires: '{{ [as_timestamp(now()) + 75, event_end | float] | min if event_active and not cold_boost
           else as_timestamp(now()) + 75 }}'
@@ -347,7 +372,10 @@ script:
       data:
         topic: iopi/bmsiopi/heating/policy/set
         retain: false
-        payload: '{{ {''allowed'': allowed, ''target'': states(''input_number.bsb_calendar_hot_target'') | float(45),
+        payload: '{{ {''allowed'': allowed, ''gas_allowed'': allowed and calendar_ok and window_active,
+          ''buffer_preferred'': is_state(''input_boolean.iopi_prefer_stored_heat'', ''on''),
+          ''buffer_window'': buffer_window, ''buffer_minimum'': states(''input_number.iopi_buffer_minimum'') | float(40),
+          ''buffer_differential'': 5, ''target'': states(''input_number.bsb_calendar_hot_target'') | float(45),
           ''differential'': states(''input_number.bsb_calendar_hysteresis'') | float(2), ''expires'': permission_expires,
           ''reason'': reason} | to_json }}'
     - action: input_text.set_value
@@ -410,26 +438,12 @@ automation:
     - input_number.bsb_cold_boost_temperature
     - input_boolean.iopi_heating_blocked
     - input_boolean.bsb_heat_fault
+    - input_boolean.iopi_prefer_stored_heat
+    - input_number.iopi_buffer_minimum
   actions:
   - action: script.bsb_heat_control
     data:
       operation: reconcile
-- id: iopi_manual_control_pauses_daily_heating
-  alias: IO-PI explicit stop blocks automatic heating
-  mode: queued
-  triggers:
-  - trigger: mqtt
-    topic: iopi/bmsiopi/heating/operator_action
-  conditions:
-  - condition: template
-    value_template: >-
-      {{ trigger.payload_json.action | default('') in ['stop', 'pump_manual']
-         and is_number(trigger.payload_json.at | default(''))
-         and 0 <= as_timestamp(now()) - (trigger.payload_json.at | float(0)) < 10 }}
-  actions:
-  - action: input_boolean.turn_on
-    target:
-      entity_id: input_boolean.iopi_heating_blocked
 - id: iopi_calendar_enable_resumes_automatic
   alias: IO-PI calendar enable clears the automatic pause
   mode: single
@@ -442,6 +456,19 @@ automation:
   - action: input_boolean.turn_off
     target:
       entity_id: input_boolean.iopi_heating_blocked
+- id: iopi_native_fault_blocks_charging
+  alias: IO-PI native control failure latches heating fault
+  mode: single
+  triggers:
+  - trigger: mqtt
+    topic: iopi/bmsiopi/heating/native_fault
+  conditions:
+  - condition: template
+    value_template: "{{ is_number(trigger.payload_json.at | default('')) and 0 <= as_timestamp(now()) - (trigger.payload_json.at | float(0)) < 10 }}"
+  actions:
+  - action: input_boolean.turn_on
+    target:
+      entity_id: input_boolean.bsb_heat_fault
 - id: iopi_mirror_heating_state
   alias: IO-PI heating status in BMS
   mode: restart

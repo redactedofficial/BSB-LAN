@@ -21,20 +21,33 @@ def read_tile(entity, name, icon='mdi:chip'):
             'grid_options': {'columns': 6, 'rows': 1}}
 
 
-def mode_button(name, mode, icon):
-    action = {'action': 'perform-action', 'perform_action':
-              'script.bsb_manual_heat_stop' if mode == 'Off' else 'script.bsb_manual_heat_start'}
-    if mode != 'Off':
-        action['confirmation'] = {'text': f'{name}? This can start the radiator pump and request boiler heat.'}
+def action_button(name, script, icon, confirmation=None):
+    action = {'action': 'perform-action', 'perform_action': 'script.' + script}
+    if confirmation:
+        action['confirmation'] = {'text': confirmation}
     return {'type': 'button', 'name': name, 'icon': icon, 'tap_action': action,
             'hold_action': {'action': 'none'}, 'grid_options': {'columns': 6, 'rows': 2}}
 
 
+manual_buttons = [
+    action_button('Pump only', 'iopi_pump_only_start', 'mdi:pump'),
+    action_button("Fuck, it's so cold", 'bsb_manual_heat_start', 'mdi:fire',
+                  'Run pump and request gas heat to the manual return cutoff (maximum one hour)? Calendars continue.'),
+    action_button('Release pump hold', 'iopi_pump_override_release', 'mdi:autorenew'),
+    action_button('End gas boost', 'bsb_manual_heat_stop', 'mdi:stop-circle-outline')]
+
+
 heat_cards = [heading('Heating · BSB-LAN + IO-PI', 'mdi:radiator'),
+    *manual_buttons,
     {'type': 'entities', 'show_header_toggle': False, 'entities': [
         {'entity': 'select.bmsiopi_heating_mode', 'name': 'Heating mode'},
         {'entity': 'input_boolean.bsb_calendar_enabled', 'name': 'Daily heating schedule'},
         {'entity': 'input_boolean.iopi_heating_blocked', 'name': 'Block automatic heating'},
+        {'entity': 'input_boolean.bsb_heat_fault', 'name': 'Heating fault latch'},
+        {'entity': 'switch.bmsiopi_pump_override', 'name': 'Manual pump hold'},
+        {'entity': 'sensor.bmsiopi_buffer_water', 'name': 'Tank water · B3'},
+        {'entity': 'input_boolean.iopi_prefer_stored_heat', 'name': 'Prefer stored solar heat'},
+        {'entity': 'input_number.iopi_buffer_minimum', 'name': 'Use stored heat above'},
         {'entity': 'sensor.bmsiopi_daily_permission', 'name': 'Schedule permission'},
         {'entity': 'number.bmsiopi_return_cutoff', 'name': 'Manual return cutoff'},
         {'entity': 'sensor.bmsiopi_heating_status', 'name': 'Control status'},
@@ -43,17 +56,13 @@ heat_cards = [heading('Heating · BSB-LAN + IO-PI', 'mdi:radiator'),
         {'entity': 'sensor.bmsiopi_return_water', 'name': 'Return water · BSB'},
         {'entity': 'sensor.bmsiopi_boiler_error', 'name': 'Boiler error · BSB'},
         {'entity': 'binary_sensor.bmsiopi_thermostat', 'name': 'Delta heat demand'}]},
-    mode_button('Heat once', 'Manual', 'mdi:fire'),
-    mode_button('Stop heating', 'Off', 'mdi:stop-circle-outline'),
     {'type': 'markdown', 'content': "**{{ states('sensor.bmsiopi_heating_status') }}**\n\n"
-     "**Daily heating = Delta demand + calendar/cold allowance + no weather/block veto.** "
-     "Thermostat mode runs R2 only when those conditions agree. BSB-LAN can then request a buffer recharge "
-     "with fresh boiler feedback, pump priming and a return cutoff. R2 keeps distributing stored heat "
-     "after that cutoff while Delta still calls. Missing daily permission stops heat within 75 seconds, "
-     "with two minutes of pump run-on after the boiler request stops. R1 stays off. "
-     "Manual Heat once is an explicit Delta/calendar override, bounded to one hour and the manual return cutoff. "
-     "The calendar stays enabled during a manual cycle and can resume afterward. Stop heating blocks automatic heating; "
-     "clear Block automatic heating, or switch the calendar off and on, to resume. "
+     "**Pump only** holds R2 on until released or communication is lost. It does not request gas or pause calendars. "
+     "**Fuck, it's so cold** overrides room demand for a gas boost, bounded by the manual return cutoff and one hour. "
+     "End gas boost returns control to the enabled schedule; an independent pump hold stays on.\n\n"
+     "**Stored heat first:** with Delta demand, daytime circulation (06:00–22:00) can use tank heat between calendar slots. "
+     "It starts at the selected tank temperature and releases 5°C below it. Gas fallback is confined to calendar/cold allowances. "
+     "Warm weather and explicit automatic blocks still apply; manual controls remain independent. DHW has its own routine. "
      "{% if states('sensor.bmsiopi_return_water') in ['unknown','unavailable'] %}"
      "**Boiler feedback is unavailable; boiler charging is blocked. Allowed Delta demand can still circulate stored heat.**{% endif %}\n\n"
      "{% if states('binary_sensor.bmsiopi_thermostat') in ['unknown','unavailable'] %}"
@@ -66,8 +75,9 @@ heat_cards = [heading('Heating · BSB-LAN + IO-PI', 'mdi:radiator'),
 relay_cards = [heading('Relay controls · R1–R8', 'mdi:electric-switch'),
     {'type': 'markdown', 'content': 'HIGH trigger · OFF = LOW GPIO drive. '
      'State is GPIO readback, without contact/load feedback. '
-     'R3–R8 and independent pump operation use five-minute leases. '
-     'R1 is reserved OFF; boiler starts use BSB-LAN. Manual pump control blocks automatic heating while leaving the calendar enabled.'}]
+     'R3–R8 use five-minute leases. '
+     'R1 is reserved OFF; boiler starts use BSB-LAN. R2 ON holds the pump; R2 OFF releases it to automatic control. '
+     'Manual relay commands never pause calendars.'}]
 for rid in range(1, 9):
     if rid == 1:
         relay_cards.append(read_tile('sensor.bmsiopi_gpio_17', 'R1 · Reserved off', 'mdi:electric-switch'))
@@ -122,8 +132,8 @@ integration = section([heading('IO-PI · Heating interface', 'mdi:raspberry-pi')
     read_tile('binary_sensor.bmsiopi_thermostat', 'Delta demand', 'mdi:thermostat'),
     read_tile('sensor.bmsiopi_daily_permission', 'Daily permission', 'mdi:calendar-check'),
     read_tile('sensor.bmsiopi_bsb_native_status', 'Actual boiler', 'mdi:fire'),
-    {'type': 'markdown', 'content': 'Daily room heating follows Delta demand and the calendar/weather permission. '
-     'R2 distributes buffer heat; BSB-LAN requests boiler charging with checked native settings. R1 stays off. DHW keeps its separate routine.'},
+    {'type': 'markdown', 'content': 'Delta can use stored tank heat during the day between slots. Gas fallback follows calendar/cold allowances. '
+     'Pump only is an independent hold; manual controls never pause calendars. R1 stays off. DHW keeps its separate routine.'},
     {'type': 'button', 'name': 'Open IO-PI', 'icon': 'mdi:raspberry-pi',
      'tap_action': {'action': 'navigate', 'navigation_path': '/dashboard-io-pi/overview'}}])
 (root / 'bms-section.json').write_text(json.dumps(integration, ensure_ascii=False, indent=2) + '\n', encoding='utf8')
