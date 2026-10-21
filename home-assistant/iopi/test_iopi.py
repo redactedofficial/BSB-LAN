@@ -218,6 +218,45 @@ class Tests(unittest.TestCase):
         self.assertFalse(self.outputs.pump_override)
         self.assertFalse(self.outputs.state[2])
 
+    def test_manual_stop_remains_off_across_allowed_calendar_renewals(self):
+        self.daily()
+        self.fresh('30')
+        self.heater.tick(True)
+        self.outputs.manual_pump(False)
+        for _ in range(12):
+            self.clock.now += 30
+            self.daily()
+            self.fresh('30')
+            self.heater.tick(True)
+            self.outputs.tick()
+        self.assertEqual(self.heater.mode, 'Thermostat')
+        self.assertTrue(self.outputs.pump_stop)
+        self.assertFalse(self.outputs.state[1])
+        self.assertFalse(self.outputs.state[2])
+        self.outputs.release_pump()
+        self.heater.tick(True)
+        self.clock.now += 5
+        self.heater.tick(True)
+        self.assertTrue(self.outputs.state[1])
+        self.assertTrue(self.outputs.state[2])
+
+    def test_manual_stop_releases_request_before_pump_afterrun_and_boost_can_restart(self):
+        self.start()
+        self.outputs.manual_pump(False)
+        self.assertFalse(self.outputs.state[1])
+        self.assertTrue(self.outputs.state[2])
+        self.clock.now += 121
+        self.heater.tick(True)
+        self.outputs.tick()
+        self.assertFalse(self.outputs.state[2])
+        self.fresh('30')
+        self.assertEqual(self.heater.select('Manual'), 'accepted')
+        self.assertFalse(self.outputs.pump_stop)
+        self.heater.tick(True)
+        self.clock.now += 5
+        self.heater.tick(True)
+        self.assertTrue(self.outputs.state[1])
+
     def test_pump_hold_coexists_with_boost_and_cutoff(self):
         self.outputs.manual_pump(True)
         self.start()

@@ -59,7 +59,7 @@
             },
             {
               "type": "button",
-              "name": "Release pump hold",
+              "name": "Pump: Auto",
               "icon": "mdi:autorenew",
               "tap_action": {
                 "action": "perform-action",
@@ -75,7 +75,7 @@
             },
             {
               "type": "button",
-              "name": "End gas boost",
+              "name": "Stop heating & pump",
               "icon": "mdi:stop-circle-outline",
               "tap_action": {
                 "action": "perform-action",
@@ -110,8 +110,8 @@
                   "name": "Heating fault latch"
                 },
                 {
-                  "entity": "switch.bmsiopi_pump_override",
-                  "name": "Manual pump hold"
+                  "entity": "select.bmsiopi_pump_control",
+                  "name": "Pump override"
                 },
                 {
                   "entity": "sensor.bmsiopi_buffer_water",
@@ -161,7 +161,7 @@
             },
             {
               "type": "markdown",
-              "content": "**{{ states('sensor.bmsiopi_heating_status') }}**\n\n**Pump only** holds R2 on until released or communication is lost. It does not request gas or pause calendars. **Fuck, it's so cold** overrides room demand for a gas boost, bounded by the manual return cutoff and one hour. End gas boost returns control to the enabled schedule; an independent pump hold stays on.\n\n**Stored heat first:** with Delta demand, daytime circulation (06:00–22:00) can use tank heat between calendar slots. It starts at the selected tank temperature and releases 5°C below it. Gas fallback is confined to calendar/cold allowances. Warm weather and explicit automatic blocks still apply; manual controls remain independent. DHW has its own routine. {% if states('sensor.bmsiopi_return_water') in ['unknown','unavailable'] %}**Boiler feedback is unavailable; boiler charging is blocked. Allowed Delta demand can still circulate stored heat.**{% endif %}\n\n{% if states('binary_sensor.bmsiopi_thermostat') in ['unknown','unavailable'] %}**Delta input is not commissioned or unavailable.** {% endif %}GPIO26's raw level is not a heat-demand reading. Native boiler control still determines burner operation. The return cutoff needs BMS and BSB-LAN communication; a complete outage can prevent a software stop. [Building heating overview](/bms-overview/overview)"
+              "content": "**{{ states('sensor.bmsiopi_heating_status') }}**\n\n**Pump only** holds R2 on until released or communication is lost. It does not request gas or pause calendars. **Fuck, it's so cold** overrides room demand for a gas boost, bounded by the manual return cutoff and one hour. **Stop heating & pump** ends the room gas request and holds the pump off; a running gas cycle gets its pump run-on first. **Pump: Auto** releases manual ON/OFF ownership. Calendars stay enabled in every case.\n\n**Stored heat first:** with Delta demand, daytime circulation (06:00–22:00) can use tank heat between calendar slots. It starts at the selected tank temperature and releases 5°C below it. Gas fallback is confined to calendar/cold allowances. Warm weather and explicit automatic blocks still apply; manual controls remain independent. DHW has its own routine. {% if states('sensor.bmsiopi_return_water') in ['unknown','unavailable'] %}**Boiler feedback is unavailable; boiler charging is blocked. Allowed Delta demand can still circulate stored heat.**{% endif %}\n\n{% if states('binary_sensor.bmsiopi_thermostat') in ['unknown','unavailable'] %}**Delta input is not commissioned or unavailable.** {% endif %}GPIO26's raw level is not a heat-demand reading. Native boiler control still determines burner operation. The return cutoff needs BMS and BSB-LAN communication; a complete outage can prevent a software stop. [Building heating overview](/bms-overview/overview)"
             }
           ]
         },
@@ -175,7 +175,7 @@
             },
             {
               "type": "markdown",
-              "content": "HIGH trigger · OFF = LOW GPIO drive. State is GPIO readback, without contact/load feedback. R3–R8 use five-minute leases. R1 is reserved OFF; boiler starts use BSB-LAN. R2 ON holds the pump; R2 OFF releases it to automatic control. Manual relay commands never pause calendars."
+              "content": "HIGH trigger · OFF = LOW GPIO drive. State is GPIO readback, without contact/load feedback. R3–R8 use five-minute leases. R1 is reserved OFF; boiler starts use BSB-LAN. R2 ON forces the pump on; R2 OFF holds it off. Use Pump: Auto to release either override. Manual relay commands never pause calendars."
             },
             {
               "type": "tile",

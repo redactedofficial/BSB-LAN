@@ -11,14 +11,18 @@ request completion and clean service restarts do not latch a fault.
 calendar permissions. It remains on until released or communication/readback
 is lost; it is not restored after reconnection. Automatic gas requests may
 coexist only when their own Delta/calendar/weather requirements allow them.
-R2 ON sets this hold; R2 OFF releases it to automatic control (so an eligible
-automatic request can keep the pump on). The separate hold entity shows ownership.
+R2 ON sets this hold; R2 OFF holds the pump off and prevents a room gas request.
+The Pump override selector explicitly shows Auto / On / Off. Pump: Auto releases
+either manual override; an eligible automatic request can then run again.
 R3–R8 keep their existing individual leases and never pause any calendar.
 
 **Fuck, it's so cold** requests the existing explicit pump + gas boost. The
 manual return cutoff and fixed one-hour maximum still apply. It does not turn
-off calendar helpers. End gas boost returns control to the enabled schedule;
-an independent manual pump hold remains on. DHW has a separate controller.
+off calendar helpers. Stop heating & pump ends the room gas request and holds
+the pump off, allowing the existing 120-second run-on after an active request.
+Starting a new gas boost releases a previous manual OFF hold. DHW has a separate
+controller and can independently fire the boiler. Connection/readback failure
+clears both manual override directions; neither is restored after reconnection.
 
 **Prefer stored solar heat** uses the actual B3 tank probe, not forecast sunshine.
 With Delta demand, fresh warm tank water permits daytime circulation from

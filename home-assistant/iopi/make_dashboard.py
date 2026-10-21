@@ -33,8 +33,8 @@ manual_buttons = [
     action_button('Pump only', 'iopi_pump_only_start', 'mdi:pump'),
     action_button("Fuck, it's so cold", 'bsb_manual_heat_start', 'mdi:fire',
                   'Run pump and request gas heat to the manual return cutoff (maximum one hour)? Calendars continue.'),
-    action_button('Release pump hold', 'iopi_pump_override_release', 'mdi:autorenew'),
-    action_button('End gas boost', 'bsb_manual_heat_stop', 'mdi:stop-circle-outline')]
+    action_button('Pump: Auto', 'iopi_pump_override_release', 'mdi:autorenew'),
+    action_button('Stop heating & pump', 'bsb_manual_heat_stop', 'mdi:stop-circle-outline')]
 
 
 heat_cards = [heading('Heating · BSB-LAN + IO-PI', 'mdi:radiator'),
@@ -44,7 +44,7 @@ heat_cards = [heading('Heating · BSB-LAN + IO-PI', 'mdi:radiator'),
         {'entity': 'input_boolean.bsb_calendar_enabled', 'name': 'Daily heating schedule'},
         {'entity': 'input_boolean.iopi_heating_blocked', 'name': 'Block automatic heating'},
         {'entity': 'input_boolean.bsb_heat_fault', 'name': 'Heating fault latch'},
-        {'entity': 'switch.bmsiopi_pump_override', 'name': 'Manual pump hold'},
+        {'entity': 'select.bmsiopi_pump_control', 'name': 'Pump override'},
         {'entity': 'sensor.bmsiopi_buffer_water', 'name': 'Tank water · B3'},
         {'entity': 'input_boolean.iopi_prefer_stored_heat', 'name': 'Prefer stored solar heat'},
         {'entity': 'input_number.iopi_buffer_minimum', 'name': 'Use stored heat above'},
@@ -59,7 +59,8 @@ heat_cards = [heading('Heating · BSB-LAN + IO-PI', 'mdi:radiator'),
     {'type': 'markdown', 'content': "**{{ states('sensor.bmsiopi_heating_status') }}**\n\n"
      "**Pump only** holds R2 on until released or communication is lost. It does not request gas or pause calendars. "
      "**Fuck, it's so cold** overrides room demand for a gas boost, bounded by the manual return cutoff and one hour. "
-     "End gas boost returns control to the enabled schedule; an independent pump hold stays on.\n\n"
+     "**Stop heating & pump** ends the room gas request and holds the pump off; a running gas cycle gets its pump run-on first. "
+     "**Pump: Auto** releases manual ON/OFF ownership. Calendars stay enabled in every case.\n\n"
      "**Stored heat first:** with Delta demand, daytime circulation (06:00–22:00) can use tank heat between calendar slots. "
      "It starts at the selected tank temperature and releases 5°C below it. Gas fallback is confined to calendar/cold allowances. "
      "Warm weather and explicit automatic blocks still apply; manual controls remain independent. DHW has its own routine. "
@@ -76,7 +77,7 @@ relay_cards = [heading('Relay controls · R1–R8', 'mdi:electric-switch'),
     {'type': 'markdown', 'content': 'HIGH trigger · OFF = LOW GPIO drive. '
      'State is GPIO readback, without contact/load feedback. '
      'R3–R8 use five-minute leases. '
-     'R1 is reserved OFF; boiler starts use BSB-LAN. R2 ON holds the pump; R2 OFF releases it to automatic control. '
+     'R1 is reserved OFF; boiler starts use BSB-LAN. R2 ON forces the pump on; R2 OFF holds it off. Use Pump: Auto to release either override. '
      'Manual relay commands never pause calendars.'}]
 for rid in range(1, 9):
     if rid == 1:

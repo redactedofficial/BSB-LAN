@@ -277,7 +277,7 @@ script:
     - action: mqtt.publish
       data:
         topic: iopi/bmsiopi/heating/pump_override/set
-        payload: 'OFF'
+        payload: AUTO
         retain: false
   bsb_manual_heat_start:
     alias: BSB-LAN manual heating once with IO-PI pump
@@ -287,7 +287,7 @@ script:
       data:
         operation: start
   bsb_manual_heat_stop:
-    alias: End manual heating - calendars continue
+    alias: Stop room heating and pump - calendars continue
     mode: single
     sequence:
     - action: script.bsb_heat_control
@@ -319,10 +319,15 @@ script:
         sequence:
         - action: mqtt.publish
           data:
+            topic: iopi/bmsiopi/heating/pump_override/set
+            payload: 'OFF'
+            retain: false
+        - action: mqtt.publish
+          data:
             topic: iopi/bmsiopi/heating/mode/set
             payload: 'Off'
             retain: false
-        - stop: Manual cycle ended; calendars and independent pump hold continue
+        - stop: Pump held off and gas boost ended; calendar enablement is unchanged
     - variables:
         calendar_result: {}
     - action: calendar.get_events

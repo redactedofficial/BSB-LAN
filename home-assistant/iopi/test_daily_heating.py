@@ -124,7 +124,9 @@ class DailyTests(unittest.TestCase):
 
     def test_manual_end_does_not_block_calendar_or_send_dhw_commands(self):
         stop = SEQUENCE[1]['choose'][1]['sequence']
-        self.assertEqual(stop[0]['data']['payload'], 'Off')
+        self.assertEqual(stop[0]['data']['payload'], 'OFF')
+        self.assertEqual(stop[0]['data']['topic'], 'iopi/bmsiopi/heating/pump_override/set')
+        self.assertEqual(stop[1]['data']['payload'], 'Off')
         self.assertNotIn('iopi_heating_blocked', json.dumps(stop))
 
     def test_manual_pump_never_changes_mode_or_calendar_and_fault_is_separate(self):

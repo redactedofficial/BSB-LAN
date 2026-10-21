@@ -18,7 +18,7 @@ import subprocess
 import threading
 import time
 
-VERSION = '0.4.0'
+VERSION = '0.4.1'
 LOG = logging.getLogger('iopi')
 # BCM GPIO -> physical 40-pin header position. GPIO0/1 are reserved for HAT ID.
 PINS = {2: 3, 3: 5, 4: 7, 5: 29, 6: 31, 7: 26, 8: 24, 9: 21,
@@ -156,15 +156,23 @@ class Outputs:
         self.pump_until = 0.0
         self.fault = False
         self.pump_override = False
+        self.pump_stop = False
 
     def manual_pump(self, on):
         if 2 not in self.enabled or self.fault:
             return 'gpio_fault' if self.fault else 'not_commissioned'
         self.pump_override = on
+        self.pump_stop = not on
         if on:
             self.command(2, True, coordinated=True)
-        LOG.info('pump_override=%s', 'ON' if on else 'AUTO')
+        else:
+            self.command(2, False)
+        LOG.info('pump_override=%s', 'ON' if on else 'OFF')
         return 'accepted'
+
+    def release_pump(self):
+        self.pump_override = self.pump_stop = False
+        LOG.info('pump_override=AUTO')
 
     def write(self, rid, on):
         if self.state.get(rid) is on:
@@ -192,6 +200,15 @@ class Outputs:
         if rid not in self.enabled or self.fault:
             return 'not_commissioned' if not self.fault else 'gpio_fault'
         now = self.clock()
+        if rid == 1 and on and self.pump_stop:
+            self.stop_heat()
+            return 'pump_manually_stopped'
+        if rid == 2 and on and self.pump_stop:
+            self.stop_heat()
+            if now < self.pump_until:
+                return 'pump_run_on'
+            self.write(2, False)
+            return 'pump_manually_stopped'
         if rid == 1:
             if on and (not self.state.get(2) or now - self.started.get(2, now) < self.config['pump_prime_seconds']):
                 return 'pump_not_primed'
@@ -225,6 +242,7 @@ class Outputs:
 
     def disconnect(self):
         self.pump_override = False
+        self.pump_stop = False
         self.stop_heat()
         for rid in sorted(self.enabled):
             self.command(rid, False)
@@ -232,6 +250,7 @@ class Outputs:
     def emergency(self):
         self.fault = True
         self.pump_override = False
+        self.pump_stop = False
         self.expires.clear()
         for rid in sorted(self.enabled):
             try:
@@ -341,6 +360,8 @@ class Heater:
         if reason:
             self.result = reason
             return 'blocked'
+        if mode == 'Manual':
+            self.outputs.pump_stop = False
         if mode != self.mode:
             self.deadline = self.clock() + self.config['max_on_seconds']
         self.mode = mode
@@ -348,6 +369,13 @@ class Heater:
 
     def tick(self, demand):
         if self.mode == 'Off':
+            return
+        if self.outputs.pump_stop:
+            self.outputs.stop_heat()
+            self.outputs.command(2, False)
+            if self.mode == 'Manual':
+                self.mode = 'Off'
+            self.result = 'Pump manually stopped; calendars continue'
             return
         if self.mode == 'Thermostat':
             self.tick_daily(demand)
@@ -466,6 +494,10 @@ def discovery(config):
     row.update(command_topic=f'{prefix}/heating/pump_override/set', payload_on='ON', payload_off='OFF',
                optimistic=False, retain=False, qos=0, icon='mdi:pump')
     yield 'homeassistant/switch/bmsiopi/pump_override/config', row
+    row = base('select', 'pump_control', 'Pump override', 'system_available')
+    row.update(command_topic=f'{prefix}/heating/pump_override/set', options=['Auto','On','Off'],
+               optimistic=False, retain=False, qos=0, icon='mdi:pump')
+    yield 'homeassistant/select/bmsiopi/pump_control/config', row
     row = base('sensor', 'buffer_water', 'Buffer tank water', 'buffer_available')
     row.update(expire_after=20, device_class='temperature', unit_of_measurement='°C', state_class='measurement')
     yield 'homeassistant/sensor/bmsiopi/buffer_water/config', row
@@ -640,6 +672,7 @@ class Node:
         self.status('uptime/state', str(int(time.monotonic() - self.born)))
         self.status('heating_mode/state', self.heater.mode)
         self.status('pump_override/state', 'ON' if self.outputs.pump_override else 'OFF')
+        self.status('pump_control/state', 'On' if self.outputs.pump_override else 'Off' if self.outputs.pump_stop else 'Auto')
         buffer_fresh = self.heater.buffer_fresh()
         self.status('buffer_available', 'online' if buffer_fresh else 'offline', True)
         if buffer_fresh:
@@ -717,8 +750,11 @@ class Node:
                         elif event[3].endswith('/policy/set'):
                             self.heater.daily_policy(event[4])
                         elif event[3].endswith('/pump_override/set'):
-                            if event[4] in ('ON', 'OFF') and self.last_observation is not None:
-                                self.outputs.manual_pump(event[4] == 'ON')
+                            value = event[4].upper()
+                            if value in ('ON', 'OFF') and self.last_observation is not None:
+                                self.outputs.manual_pump(value == 'ON')
+                            elif value == 'AUTO':
+                                self.outputs.release_pump()
                         else:
                             try:
                                 value = float(event[4])
